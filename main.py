@@ -5,10 +5,88 @@ from skimage.transform import warp, ProjectiveTransform
 from scipy.fftpack import fft, ifft
 from functools import partial
 from bresenham import bresenham
+from PyQt5.QtWidgets import *
+from PyQt5.QtGui import *
+from PyQt5.QtCore import *
+
+
+class App(QWidget):
+    def __init__(self):
+        super().__init__()
+        self.title = "Tomograf"
+        self.left = 200
+        self.top = 50
+        self.width = 1000
+        self.height = 750
+        self.file = None
+        self.label = None
+        self.init()
+
+    def init(self):
+        self.setWindowTitle(self.title)
+        self.setGeometry(self.left, self.top, self.width, self.height)
+        layout = QVBoxLayout()
+        layout.addWidget(self.add_label("Tomograf", 45))
+        self.label = self.add_label("Nie wybrano pliku")
+        layout.addWidget(self.label)
+        layout.addWidget(self.add_button("Wybierz plik", self.choose_file))
+        layout.addWidget(self.add_button("Rozpocznij tomograf", self.start_tomograph))
+        self.setLayout(layout)
+        self.show()
+
+    def choose_file(self):
+        file_chooser = FileChooser()
+        self.file = file_chooser.file
+        self.label.setText(self.file)
+
+    def start_tomograph(self):  # TODO
+        print("Starting tomograph")
+
+    @staticmethod
+    def add_label(title, size=16):
+        label = QLabel(title)
+        label.setAlignment(Qt.AlignCenter)
+        label.setFont(QFont(None, size, QFont.AnyStyle))
+        return label
+
+    @staticmethod
+    def add_button(title, method):
+        button = QPushButton(title)
+        button.clicked.connect(method)
+        return button
+
+
+class FileChooser(QWidget):
+    def __init__(self):
+        super().__init__()
+        self.file = None
+        self.init()
+
+    def init(self):
+        self.setWindowTitle("Wybierz plik")
+        self.setGeometry(400, 100, 640, 480)
+
+        self.open_file_name_dialog()
+
+        self.show()
+
+    def open_file_name_dialog(self):
+        options = QFileDialog.Options()
+        options |= QFileDialog.DontUseNativeDialog
+        file_name, _ = QFileDialog.getOpenFileName(self, "QFileDialog.getOpenFileName()", "",
+                                                   "All Files (*);;Python Files (*.py)", options=options)
+        if file_name:
+            self.file = file_name
+
+
+def start_gui():
+    app = QApplication([])
+    ex = App()
+    app.exec_()
 
 
 def radon_transform(image, angle, with_steps=False):
-    diag = max(image.shape)*np.sqrt(2)
+    diag = max(image.shape) * np.sqrt(2)
     pad = [int(np.ceil(diag - i)) for i in image.shape]
     new_center = [(i + j) // 2 for i, j in zip(image.shape, pad)]
     old_center = [i // 2 for i in image.shape]
@@ -69,6 +147,7 @@ def iradon_transform(sinogram, angle, with_steps=False):
 
 
 def main():
+    start_gui()
     image = cv2.imread('CT_ScoutView.jpg', 0).astype('float64')
     with_steps = True
     radon = radon_transform(image, 0.125, with_steps)
