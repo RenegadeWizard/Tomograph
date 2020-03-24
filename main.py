@@ -37,15 +37,15 @@ class App(QWidget):
 
     def choose_file(self):
         file_chooser = self.FileChooser()
-        self.file = file_chooser.file
-        if self.file is None:
+        if file_chooser.file is None:
             return None
+        self.file = file_chooser.file
         self.label.setText(self.file)
 
     def start_tomograph(self):
         if self.file is None:
             return None
-        tomograph = Tomograph(180, 180, 1)
+        tomograph = Tomograph(500, 180, 1)
         image = cv2.imread(self.file, 0).astype('float64')
         radon = tomograph.radon_transform(image)
         iradon = tomograph.iradon_transform(radon)
@@ -101,7 +101,7 @@ class Tomograph:
 
     def radon_transform(self, image, with_steps=False):
         # prepare useful values
-        angle = [i for i in np.arange(0.0, 180.0, self.step_angle)]
+        angle_ = [i for i in np.arange(0.0, 180.0, self.step_angle)]
 
         # prepare image to be a square and easy to transform
         diag = max(image.shape) * math.sqrt(2)
@@ -115,28 +115,32 @@ class Tomograph:
         # count center of squared_image and prepare matrix filled with zeros to apply radon transform
         center = squared_image.shape[0] // 2
         r = (squared_image.shape[0] * math.sqrt(2)) // 2
-        radon_image = np.zeros((squared_image.shape[0], len(angle)), dtype='float64')
-
+        # radon_image = np.zeros((self.emiter_detector_count, len(angle_)//self.step_angle), dtype='float64')
+        radon_image = []
         # iterate through angle list to obtain the result sinogram
-        for i, angle in enumerate(np.deg2rad(angle)):
+        for _, angle in enumerate(np.deg2rad(angle_)):
             lines_sum = []
-            for j in range(0, self.emiter_detector_count):
-                x1 = int(math.ceil(r * math.cos(
+            for j in range(self.emiter_detector_count):
+
+                x1 = int(r * math.cos(
                     angle + math.pi - np.deg2rad(self.angular_extent) / 2 + (j * np.deg2rad(self.angular_extent)) / (
-                                self.emiter_detector_count - 1))+center))
-                y1 = int(math.ceil(r * math.sin(
+                                self.emiter_detector_count - 1))+center)
+                y1 = int(r * math.sin(
                     angle + math.pi - np.deg2rad(self.angular_extent) / 2 + (j * np.deg2rad(self.angular_extent)) / (
-                                self.emiter_detector_count - 1))+center))
-                x2 = int(math.ceil(r * math.cos(angle - np.deg2rad(self.angular_extent) / 2 + (j * np.deg2rad(self.angular_extent)))+center))
-                y2 = int(math.ceil(r * math.sin(angle - np.deg2rad(self.angular_extent) / 2 + (j * np.deg2rad(self.angular_extent)))+center))
+                                self.emiter_detector_count - 1))+center)
+                # x2 = int(r * math.cos(angle - np.deg2rad(self.angular_extent) / 2 + (j * np.deg2rad(self.angular_extent)))+center)
+                # y2 = int(r * math.sin(angle - np.deg2rad(self.angular_extent) / 2 + (j * np.deg2rad(self.angular_extent)))+center)
+                x2 = int(r * math.cos(angle) + center)
+                y2 = int(r * math.sin(angle) + center)
+                # print(x1, y1, x2, y2)
                 points = list(bresenham(x1, y1, x2, y2))
-                actual_sum=0
-                actual_sum_vec=[0 for i in range(0,squared_image.shape[0])]
+                actual_sum = 0
+                actual_sum_vec = [0 for i in range(0, squared_image.shape[0])]
                 for p in points:
                     if -1 < p[0] < squared_image.shape[0] and -1 < p[1] < squared_image.shape[1]:
                         actual_sum = actual_sum + squared_image[p[0]][p[1]]
                 lines_sum.append(actual_sum)
-            radon_image[:,i]=sum(lines_sum)
+            radon_image.append(lines_sum)
             # if with_steps==True:
             #   plt.imshow(radon_image, cmap='gray')
             #    plt.xticks([]), plt.yticks([])
@@ -148,7 +152,7 @@ class Tomograph:
                          [0, 0, 1]])
             rotated = warp(squared_image, R, clip=False)
             radon_image[:, i] = rotated.sum(0)"""
-        return radon_image
+        return np.transpose(radon_image)
 
     def iradon_transform(self, sinogram, with_steps=False):
         angle = [i for i in np.arange(0.0, 180.0, self.step_angle)]
