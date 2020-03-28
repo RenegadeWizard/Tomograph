@@ -8,6 +8,10 @@ from bresenham import bresenham
 from PyQt5.QtWidgets import *
 from PyQt5.QtGui import *
 from PyQt5.QtCore import *
+from pydicom import dcmread
+from pydicom.data import get_testdata_file
+from pydicom.dataset import Dataset, FileDataset
+import SimpleITK as sitk
 
 
 class App(QWidget):
@@ -48,6 +52,8 @@ class App(QWidget):
         image = cv2.imread(self.file, 0).astype('float64')
         radon = tomograph.radon_transform(image)
         iradon = tomograph.iradon_transform(radon)
+
+        dic = Dicom(image)
 
         plt.subplot(2, 2, 1), plt.imshow(image, cmap='gray')
         plt.xticks([]), plt.yticks([])
@@ -181,6 +187,27 @@ class Tomograph:
             reconstructed += interpolant(t)
 
         return reconstructed * np.pi / (2 * angles_count)
+
+
+class Dicom:
+    def __init__(self, pixel_array):
+        self.ds = Dataset()
+        self.ds.PatientName = "Krzysztof Sychla"
+        self.ds.PixelData = pixel_array.tostring()
+        # self.ds.save_as("out/file.dcm")
+        fs = FileDataset("out/file.dcm", self.ds)
+        fs.save_as("out/file.dcm")
+        print("lol udalo sie")
+        # t = dcmread(get_testdata_file("CT_small.dcm"))
+        # print(t.pixel_array.dtype)
+
+        # print(dcmread(get_testdata_file("CT_small.dcm")).is_implicit_VR)
+
+    def read(self):
+        pass
+
+    def write(self):
+        pass
 
 
 def main():
