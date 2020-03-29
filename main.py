@@ -12,6 +12,7 @@ import pydicom
 from pydicom.data import get_testdata_file
 from pydicom.dataset import Dataset, FileDataset
 import SimpleITK as sitk
+import threading
 
 
 def norm(arr: np.ndarray):
@@ -31,6 +32,8 @@ class App(QWidget):
         self.height = 750
         self.file = None
         self.label = None
+        self.tomograph = None
+        self.progress = None
         self.init()
 
     def init(self):
@@ -40,6 +43,8 @@ class App(QWidget):
         layout.addWidget(self.add_label("Tomograf", 45))
         self.label = self.add_label("Nie wybrano pliku")
         layout.addWidget(self.label)
+        self.progress = QProgressBar()
+        layout.addWidget(self.progress)
         layout.addWidget(self.add_button("Wybierz plik", self.choose_file))
         layout.addWidget(self.add_button("Rozpocznij tomograf", self.start_tomograph))
         self.setLayout(layout)
@@ -55,25 +60,31 @@ class App(QWidget):
     def start_tomograph(self):
         if self.file is None:
             return None
-        tomograph = Tomograph(500, 180, 1)
+        self.tomograph = Tomograph(500, 180, 1)
         image = cv2.imread(self.file, 0).astype('int16')
-        radon = tomograph.radon_transform(image)
-        iradon = tomograph.iradon_transform(radon)
+        # radon = self.tomograph.radon_transform(image)
+        # iradon = self.tomograph.iradon_transform(radon)
+        rad_th = self.RadonThread(self.tomograph, image)
+        rad_th.setDaemon(True)
+        rad_th.start()
+        while rad_th.is_alive():
+            self.progress.setValue(rad_th.tomograph.progress)
+            QApplication.processEvents()
 
-        iradon = norm(iradon)
+        iradon = norm(rad_th.iradon)
 
         # tomograph.write_dicom(image, "lol")
-        tomograph.write_dicom(iradon, "iradon")
+        self.tomograph.write_dicom(iradon, "iradon")
         # print("lol")
 
 
 
         plt.subplot(2, 2, 1), plt.imshow(image, cmap='gray')
         plt.xticks([]), plt.yticks([])
-        plt.subplot(2, 2, 2), plt.imshow(radon, cmap='gray')
+        plt.subplot(2, 2, 2), plt.imshow(rad_th.radon, cmap='gray')
         plt.xticks([]), plt.yticks([])
         plt.subplot(2, 2, 3), plt.imshow(iradon.astype(np.int16), cmap='gray')
-        plt.subplot(2, 2, 4), plt.imshow(tomograph.read_dicom("out/iradon"), cmap='gray')
+        plt.subplot(2, 2, 4), plt.imshow(self.tomograph.read_dicom("out/iradon"), cmap='gray')
         plt.show()
 
     @staticmethod
@@ -111,12 +122,25 @@ class App(QWidget):
             if file_name:
                 self.file = file_name
 
+    class RadonThread(threading.Thread):
+        def __init__(self, tomograph, image):
+            super().__init__()
+            self.tomograph = tomograph
+            self.image = image
+            self.radon = None
+            self.iradon = None
+
+        def run(self):
+            self.radon = self.tomograph.radon_transform(self.image)
+            self.iradon = self.tomograph.iradon_transform(self.radon)
+
 
 class Tomograph:
     def __init__(self, emiter_detector_count, angular_extent, step_angle):
         self.emiter_detector_count = emiter_detector_count
         self.angular_extent = angular_extent
         self.step_angle = step_angle
+        self.progress = 0
 
     def radon_transform(self, image, with_steps=False):
         # prepare useful values
@@ -137,7 +161,7 @@ class Tomograph:
         radon_image = []
 
         # iterate through angle list to obtain the result sinogram
-        for _, angle in enumerate(np.deg2rad(angle_)):
+        for i, angle in enumerate(np.deg2rad(angle_)):
             lines_sum = []
             for j in range(self.emiter_detector_count):
                 
@@ -163,6 +187,7 @@ class Tomograph:
                 lines_sum.append(actual_sum)
 
             radon_image.append(lines_sum)
+            self.progress = 100 * i/len(angle_) + 1
             # if with_steps==True:
             #   plt.imshow(radon_image, cmap='gray')
             #    plt.xticks([]), plt.yticks([])
