@@ -73,7 +73,7 @@ class App(QWidget):
         plt.subplot(2, 2, 2), plt.imshow(radon, cmap='gray')
         plt.xticks([]), plt.yticks([])
         plt.subplot(2, 2, 3), plt.imshow(iradon.astype(np.int16), cmap='gray')
-        plt.subplot(2, 2, 4), plt.imshow(tomograph.read_dicom("iradon"), cmap='gray')
+        plt.subplot(2, 2, 4), plt.imshow(tomograph.read_dicom("out/iradon"), cmap='gray')
         plt.show()
 
     @staticmethod
