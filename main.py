@@ -8,7 +8,7 @@ from bresenham import bresenham
 from PyQt5.QtWidgets import *
 from PyQt5.QtGui import *
 from PyQt5.QtCore import *
-from pydicom import dcmread
+import pydicom
 from pydicom.data import get_testdata_file
 from pydicom.dataset import Dataset, FileDataset
 import SimpleITK as sitk
@@ -49,17 +49,20 @@ class App(QWidget):
         if self.file is None:
             return None
         tomograph = Tomograph(500, 180, 1)
-        image = cv2.imread(self.file, 0).astype('float64')
+        image = cv2.imread(self.file, 0).astype('int16')
         radon = tomograph.radon_transform(image)
         iradon = tomograph.iradon_transform(radon)
 
-        dic = Dicom(image)
+        # tomograph.write_dicom(image, "lol")
+        # tomograph.write_dicom(iradon, "iradon")
+        # print("lol")
 
         plt.subplot(2, 2, 1), plt.imshow(image, cmap='gray')
         plt.xticks([]), plt.yticks([])
         plt.subplot(2, 2, 2), plt.imshow(radon, cmap='gray')
         plt.xticks([]), plt.yticks([])
         plt.subplot(2, 2, 3), plt.imshow(iradon, cmap='gray')
+        # plt.subplot(2, 2, 4), plt.imshow(tomograph.read_dicom("lol"), cmap='gray')
         plt.show()
 
     @staticmethod
@@ -188,26 +191,39 @@ class Tomograph:
 
         return reconstructed * np.pi / (2 * angles_count)
 
+    def write_dicom(self, image, file_name):
+        meta = Dataset()
+        meta.MediaStorageSOPClassUID = '1.2.840.10008.5.1.4.1.1.2'
+        meta.MediaStorageSOPInstanceUID = pydicom.uid.generate_uid()
+        meta.TransferSyntaxUID = '1.2.840.10008.1.2'
 
-class Dicom:
-    def __init__(self, pixel_array):
-        self.ds = Dataset()
-        self.ds.PatientName = "Krzysztof Sychla"
-        self.ds.PixelData = pixel_array.tostring()
-        # self.ds.save_as("out/file.dcm")
-        fs = FileDataset("out/file.dcm", self.ds)
-        fs.save_as("out/file.dcm")
-        print("lol udalo sie")
-        # t = dcmread(get_testdata_file("CT_small.dcm"))
-        # print(t.pixel_array.dtype)
+        ds = FileDataset(file_name + '.dcm', {}, file_meta=meta, preamble=b"\0" * 128)
+        # ds = FileDataset(file_name + '.dcm', {}, file_meta=meta)
 
-        # print(dcmread(get_testdata_file("CT_small.dcm")).is_implicit_VR)
+        # patient info
+        # ds.PatientsName = name
+        # ds.PatientsBirthDate = birth_day
+        # ds.PatientsSex = sex
+        # ds.PatientsAge = str(age)
+        # today = date.today()
+        # ds.StudyDate = today.strftime("%d/%m/%Y")
 
-    def read(self):
-        pass
+        ds.SamplesPerPixel = 1
+        ds.PhotometricInterpretation = "MONOCHROME1"  # check MONOCHROME1
+        ds.PixelRepresentation = 0
+        ds.HighBit = 15
+        ds.BitsStored = 16
+        ds.BitsAllocated = 16
+        ds.SmallestImagePixelValue = b'\\x00\\x00'
+        ds.LargestImagePixelValue = b'\\xff\\xff'
+        ds.Columns = image.shape[1]
+        ds.Rows = image.shape[0]
+        ds.PixelData = image.tostring()
+        ds.save_as(file_name + '.dcm')
 
-    def write(self):
-        pass
+    def read_dicom(self, filename):
+        ds = pydicom.dcmread(filename+".dcm")
+        return ds.pixel_array
 
 
 def main():
