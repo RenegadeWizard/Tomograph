@@ -169,38 +169,34 @@ class Tomograph:
             #    plt.show()
         return np.rot90(radon_image)
 
-    def iradon_transform(self, sinogram, with_steps=False):
-        angle = [i for i in np.arange(0.0, 180.0, self.step_angle)]
+    def iradon_transform(self, sinogram, with_steps=False,with_convolve=False):
+        # prepare useful values
+        angle_ = [i for i in np.arange(0.0, 180.0, self.step_angle)]
+        size = sinogram.shape[0]
+        base_iradon = np.zeros((size, size))
 
-        angles_count = len(angle)
-        if angles_count != sinogram.shape[1]:
-            raise ValueError("The angle doesn't match the number of projections in sinogram.")
+        # create coordinate system centered at (x,y = 0,0)
+        x = np.arange(size) - size / 2
+        y = x.copy()
+        Y, X = np.meshgrid(-x, y)
 
-        img_shape = sinogram.shape[0]
-        output_size = int(np.floor(np.sqrt(img_shape ** 2 / 2.0)))
-        projection_size_padded = max(64, int(2 ** np.ceil(np.log2(2 * img_shape))))
-        pad_width = ((0, projection_size_padded - img_shape), (0, 0))
-        img = np.pad(sinogram, pad_width, mode='constant', constant_values=0)
+        #in each iteration:
+        #1. set rotated x in mesh grid form
+        #2. move back to original image coords, round values
+        #3. take only available cords from base grid
+        #4. take one projection from sinogram
+        #5. proceed the part of backprojection
+        for i, angle in enumerate(np.deg2rad(angle_)):
+            Xrot = X * math.sin(angle) - Y * math.cos(angle)
+            XrotCor = (np.round(Xrot + size / 2)).astype('int')
+            step = np.zeros((size, size))
+            k, l = np.where((XrotCor >= 0) & (XrotCor <= (size - 1)))
+            sinogram_part = sinogram[:, i]
+            step[k, l] = sinogram_part[XrotCor[k, l]]
+            base_iradon += step
 
-        n = np.concatenate((np.arange(1, projection_size_padded / 2 + 1, 2, dtype=np.int),
-                            np.arange(projection_size_padded / 2 - 1, 0, -2, dtype=np.int)))
-        f = np.zeros(projection_size_padded)
-        f[0] = 0.25
-        f[1::2] = -1 / (np.pi * n) ** 2
-        fourier_filter = 2 * np.real(fft(f))[:, np.newaxis]
-        projection = fft(img, axis=0) * fourier_filter
-        radon_filtered = np.real(ifft(projection, axis=0)[:img_shape, :])
-        reconstructed = np.zeros((output_size, output_size))
-        radius = output_size // 2
-        xpr, ypr = np.mgrid[:output_size, :output_size] - radius
-        x = np.arange(img_shape) - img_shape // 2
-
-        for col, angle in zip(radon_filtered.T, np.deg2rad(angle)):
-            t = ypr * np.cos(angle) - xpr * np.sin(angle)
-            interpolant = partial(np.interp, xp=x, fp=col, left=0, right=0)
-            reconstructed += interpolant(t)
-
-        return reconstructed * np.pi / (2 * angles_count)
+        iradon = np.flipud(base_iradon)
+        return iradon
 
     def write_dicom(self, image, file_name):
         meta = Dataset()
