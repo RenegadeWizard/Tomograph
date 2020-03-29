@@ -14,6 +14,13 @@ from pydicom.dataset import Dataset, FileDataset
 import SimpleITK as sitk
 
 
+def norm(arr: np.ndarray):
+    arr = arr.astype(np.int64)
+    arr = arr - np.amin(arr)
+    arr = (arr / np.amax(arr)) * 255
+    return arr.astype(np.int16)
+
+
 class App(QWidget):
     def __init__(self):
         super().__init__()
@@ -53,16 +60,20 @@ class App(QWidget):
         radon = tomograph.radon_transform(image)
         iradon = tomograph.iradon_transform(radon)
 
+        iradon = norm(iradon)
+
         # tomograph.write_dicom(image, "lol")
-        # tomograph.write_dicom(iradon, "iradon")
+        tomograph.write_dicom(iradon, "iradon")
         # print("lol")
+
+
 
         plt.subplot(2, 2, 1), plt.imshow(image, cmap='gray')
         plt.xticks([]), plt.yticks([])
         plt.subplot(2, 2, 2), plt.imshow(radon, cmap='gray')
         plt.xticks([]), plt.yticks([])
-        plt.subplot(2, 2, 3), plt.imshow(iradon, cmap='gray')
-        # plt.subplot(2, 2, 4), plt.imshow(tomograph.read_dicom("lol"), cmap='gray')
+        plt.subplot(2, 2, 3), plt.imshow(iradon.astype(np.int16), cmap='gray')
+        plt.subplot(2, 2, 4), plt.imshow(tomograph.read_dicom("iradon"), cmap='gray')
         plt.show()
 
     @staticmethod
@@ -219,7 +230,7 @@ class Tomograph:
         ds.Columns = image.shape[1]
         ds.Rows = image.shape[0]
         ds.PixelData = image.tostring()
-        ds.save_as(file_name + '.dcm')
+        ds.save_as("out/"+file_name + '.dcm')
 
     def read_dicom(self, filename):
         ds = pydicom.dcmread(filename+".dcm")
