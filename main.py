@@ -24,6 +24,21 @@ def norm(arr: np.ndarray):
 
 class Communicate(QObject):
     signal = pyqtSignal()
+    end = pyqtSignal()
+
+
+def get_qimage(image: np.ndarray):
+    assert (np.max(image) <= 255)
+    # image8 = image.astype(np.uint8, order='C', casting='unsafe')
+    image = image.astype(np.uint8, order='C', casting='unsafe')
+    height, width = image.shape
+    bytesPerLine = 3 * width
+
+    image = QImage(image.data, width//3, height//3, bytesPerLine,
+                       QImage.Format_RGB888)
+
+    image = image.rgbSwapped()
+    return image
 
 
 class App(QWidget):
@@ -34,25 +49,40 @@ class App(QWidget):
         self.top = 50
         self.width = 1000
         self.height = 750
+        self.layout = QVBoxLayout()
         self.file = None
         self.label = None
         self.tomograph = None
         self.progress = None
+        self.slider = None
         self.init()
+        self.setLayout(self.layout)
+        self.show()
 
     def init(self):
         self.setWindowTitle(self.title)
         self.setGeometry(self.left, self.top, self.width, self.height)
-        layout = QVBoxLayout()
-        layout.addWidget(self.add_label("Tomograf", 45))
+        self.layout.addWidget(self.add_label("Tomograf", 45))
         self.label = self.add_label("Nie wybrano pliku")
-        layout.addWidget(self.label)
+        self.layout.addWidget(self.label)
         self.progress = QProgressBar()
-        layout.addWidget(self.progress)
-        layout.addWidget(self.add_button("Wybierz plik", self.choose_file))
-        layout.addWidget(self.add_button("Rozpocznij tomograf", self.start_tomograph))
-        self.setLayout(layout)
-        self.show()
+        self.layout.addWidget(self.progress)
+        self.layout.addWidget(self.add_button("Wybierz plik", self.choose_file))
+        self.layout.addWidget(self.add_button("Rozpocznij tomograf", self.start_tomograph))
+        self.layout.addWidget(self.add_button("TEST", self.show_results))
+
+    def init2(self):
+        hbox = QHBoxLayout()
+        hbox.addWidget(self.add_image(self.tomograph.sinogram))
+        hbox.addWidget(self.add_image(self.tomograph.iradon))
+        self.layout.addLayout(hbox)
+        self.slider = QSlider(Qt.Horizontal)
+        self.slider.valueChanged.connect(self.on_slider)
+
+        self.layout.addWidget(self.slider)
+
+    def on_slider(self):
+        print(self.slider.value())
 
     def choose_file(self):
         file_chooser = self.FileChooser()
@@ -64,12 +94,21 @@ class App(QWidget):
     def update_progress(self):
         self.progress.setValue(self.tomograph.progress)
 
+    def show_results(self):
+        index = self.layout.count() - 1
+        while index >= 0:
+            myWidget = self.layout.itemAt(index).widget()
+            myWidget.setParent(None)
+            index -= 1
+        self.init2()
+
     def start_tomograph(self):
         if self.file is None:
             return None
 
         sig = Communicate()
         sig.signal.connect(self.update_progress)
+        sig.end.connect(self.show_results)
         self.tomograph = Tomograph(500, 180, 1, sig)
         image = cv2.imread(self.file, 0).astype('int16')
 
@@ -89,6 +128,13 @@ class App(QWidget):
         button = QPushButton(title)
         button.clicked.connect(method)
         return button
+
+    @staticmethod
+    def add_image(image, label="image"):
+        img = QLabel(label)
+        img.setAlignment(Qt.AlignCenter)
+        img.setPixmap(QPixmap(get_qimage(image)).scaled(256, 256, Qt.KeepAspectRatio))
+        return img
 
     class FileChooser(QWidget):
         def __init__(self):
@@ -140,6 +186,8 @@ class Tomograph:
         self.step_angle = step_angle
         self.progress = 0
         self.signal = signal
+        self.sinogram = None
+        self.iradon = None
 
     def radon_transform(self, image, with_steps=False):
         # prepare useful values
@@ -192,6 +240,7 @@ class Tomograph:
             #   plt.imshow(radon_image, cmap='gray')
             #    plt.xticks([]), plt.yticks([])
             #    plt.show()
+        self.sinogram = norm(np.rot90(radon_image))
         return np.rot90(radon_image)
 
     def iradon_transform(self, sinogram, with_steps=False):
@@ -225,6 +274,8 @@ class Tomograph:
             interpolant = partial(np.interp, xp=x, fp=col, left=0, right=0)
             reconstructed += interpolant(t)
 
+        self.iradon = norm(reconstructed * np.pi / (2 * angles_count))
+        self.signal.end.emit()
         return reconstructed * np.pi / (2 * angles_count)
 
     def write_dicom(self, image, file_name):
