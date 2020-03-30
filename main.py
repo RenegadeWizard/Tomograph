@@ -2,12 +2,11 @@ import cv2
 import numpy as np
 import math
 import matplotlib.pyplot as plt
-from scipy.fftpack import fft, ifft
-from functools import partial
 from bresenham import bresenham
 from PyQt5.QtWidgets import *
 from PyQt5.QtGui import *
 from PyQt5.QtCore import *
+import PyQt5
 import pydicom
 from pydicom.data import get_testdata_file
 from pydicom.dataset import Dataset, FileDataset
@@ -31,6 +30,9 @@ class App(QWidget):
         self.height = 750
         self.file = None
         self.label = None
+        self.with_steps=False
+        self.with_convolve=False
+        self.with_dicom=False
         self.init()
 
     def init(self):
@@ -41,9 +43,48 @@ class App(QWidget):
         self.label = self.add_label("Nie wybrano pliku")
         layout.addWidget(self.label)
         layout.addWidget(self.add_button("Wybierz plik", self.choose_file))
+        self.steps = QCheckBox("show steps")
+        self.steps.stateChanged.connect(lambda:self.box_state(self.steps))
+        layout.addWidget(self.steps)
+        self.conv = QCheckBox("with convolution")
+        self.conv.stateChanged.connect(lambda: self.box_state(self.conv))
+        layout.addWidget(self.conv)
+        self.dicom = QCheckBox("with dicom")
+        self.dicom.stateChanged.connect(lambda: self.box_state(self.dicom))
+        layout.addWidget(self.dicom)
+
+        self.onlyInt = QIntValidator()
+
+        layout.addWidget(self.add_label("Liczba detektorów/emiterów:", 10))
+        self.info1 = QLineEdit()
+        self.info1.setValidator(self.onlyInt)
+        layout.addWidget(self.info1)
+
+        layout.addWidget(self.add_label("Rozpiętość kątowa (w stopniach):", 10))
+        self.info2 = QLineEdit()
+        self.info2.setValidator(self.onlyInt)
+        layout.addWidget(self.info2)
+
+        layout.addWidget(self.add_label("Krok układu (w stopniach):", 10))
+        self.info3 = QLineEdit()
+        self.info3.setValidator(self.onlyInt)
+        layout.addWidget(self.info3)
+
         layout.addWidget(self.add_button("Rozpocznij tomograf", self.start_tomograph))
+
         self.setLayout(layout)
         self.show()
+
+    def box_state(self,type):
+        if type.text() == "show steps":
+            if type.isChecked() == True:
+                self.with_steps=True
+        if type.text() == "with convolution":
+            if type.isChecked() == True:
+                self.with_convolve=True
+        if type.text() == "with dicom":
+            if type.isChecked() == True:
+                self.with_dicom=True
 
     def choose_file(self):
         file_chooser = self.FileChooser()
@@ -55,25 +96,24 @@ class App(QWidget):
     def start_tomograph(self):
         if self.file is None:
             return None
-        tomograph = Tomograph(500, 180, 1)
+        tomograph = Tomograph(int(self.info1.text()), int(self.info2.text()), int(self.info3.text()))
         image = cv2.imread(self.file, 0).astype('int16')
-        radon = tomograph.radon_transform(image)
-        iradon = tomograph.iradon_transform(radon)
+        radon = tomograph.radon_transform(image,self.with_steps)
+        iradon = tomograph.iradon_transform(radon,self.with_steps,self.with_convolve)
 
-        iradon = norm(iradon)
-
-        # tomograph.write_dicom(image, "lol")
-        tomograph.write_dicom(iradon, "iradon")
-        # print("lol")
-
-
+        if(self.with_dicom):
+            iradon = norm(iradon)
+            tomograph.write_dicom(iradon, "iradon")
 
         plt.subplot(2, 2, 1), plt.imshow(image, cmap='gray')
         plt.xticks([]), plt.yticks([])
         plt.subplot(2, 2, 2), plt.imshow(radon, cmap='gray')
         plt.xticks([]), plt.yticks([])
-        plt.subplot(2, 2, 3), plt.imshow(iradon.astype(np.int16), cmap='gray')
-        plt.subplot(2, 2, 4), plt.imshow(tomograph.read_dicom("out/iradon"), cmap='gray')
+        if(self.with_dicom):
+            plt.subplot(2, 2, 3), plt.imshow(iradon.astype(np.int16), cmap='gray')
+            plt.subplot(2, 2, 4), plt.imshow(tomograph.read_dicom("out/iradon"), cmap='gray')
+        else:
+            plt.subplot(2, 2, 3), plt.imshow(iradon, cmap='gray')
         plt.show()
 
     @staticmethod
@@ -113,7 +153,7 @@ class App(QWidget):
 
 
 class Tomograph:
-    def __init__(self, emiter_detector_count, angular_extent, step_angle):
+    def __init__(self, emiter_detector_count=500, angular_extent=180, step_angle=1):
         self.emiter_detector_count = emiter_detector_count
         self.angular_extent = angular_extent
         self.step_angle = step_angle
@@ -169,7 +209,7 @@ class Tomograph:
             #    plt.show()
         return np.rot90(radon_image)
 
-    def iradon_transform(self, sinogram, with_steps=False,with_convolve=False):
+    def iradon_transform(self, sinogram, with_steps=False,with_convolve=True):
         # prepare useful values
         angle_ = [i for i in np.arange(0.0, 180.0, self.step_angle)]
         size = sinogram.shape[0]
@@ -192,10 +232,14 @@ class Tomograph:
             step = np.zeros((size, size))
             k, l = np.where((XrotCor >= 0) & (XrotCor <= (size - 1)))
             sinogram_part = sinogram[:, i]
+            if (with_convolve):
+                filter1=[5/8 for i in range(0,len(sinogram_part))]
+                sinogram_part = np.convolve(sinogram_part, np.array(filter1),mode='same')
             step[k, l] = sinogram_part[XrotCor[k, l]]
             base_iradon += step
 
         iradon = np.flipud(base_iradon)
+
         return iradon
 
     def write_dicom(self, image, file_name):
