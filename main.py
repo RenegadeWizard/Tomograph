@@ -26,7 +26,6 @@ class Communicate(QObject):
 
 def get_qimage(image: np.ndarray):
     assert (np.max(image) <= 255)
-    # image8 = image.astype(np.uint8, order='C', casting='unsafe')
     image = image.astype(np.uint8, order='C', casting='unsafe')
     height, width = image.shape
     bytesPerLine = 3 * width
@@ -52,11 +51,15 @@ class App(QWidget):
         self.tomograph = None
         self.progress = None
         self.slider = None
+        self.sinogram_image = None
+        self.iradon_image = None
         self.with_steps = False
         self.with_convolve = False
         self.with_dicom = False
         self.init()
         self.setLayout(self.layout)
+        self.init_func = self.init2
+        self.p_label = None
         self.show()
 
     def init(self):
@@ -99,19 +102,26 @@ class App(QWidget):
 
     def init2(self):
         hbox = QHBoxLayout()
-        hbox.addWidget(self.add_image(self.tomograph.sinogram))
-        hbox.addWidget(self.add_image(self.tomograph.iradon))
+        self.sinogram_image = self.add_image(self.tomograph.sinogram)
+        hbox.addWidget(self.sinogram_image)
+        self.iradon_image = self.add_image(self.tomograph.iradon)
+        hbox.addWidget(self.iradon_image)
+        # self.layout.addWidget(self.add_button("Wróć", self.show_results))
         self.layout.addLayout(hbox)
+        self.p_label = self.add_label("100")
+        self.layout.addWidget(self.p_label)
         self.slider = QSlider(Qt.Horizontal)
-        self.slider.valueChanged.connect(self.on_slider)
         self.slider.setMaximum(100)
         self.slider.setMinimum(1)
         self.slider.setValue(100)
+        self.slider.valueChanged.connect(self.on_slider)
 
         self.layout.addWidget(self.slider)
 
     def on_slider(self):
-        print(self.slider.value())
+        self.p_label.setText(str(self.slider.value()))
+        self.sinogram_image.setPixmap(QPixmap(get_qimage(self.tomograph.sinogram[:, :int(self.tomograph.sinogram.shape[1] * self.slider.value() / 100)])).scaled(256, 256, Qt.KeepAspectRatio))
+
 
     def box_state(self, type):
         if type.text() == "show steps":
@@ -138,9 +148,11 @@ class App(QWidget):
         index = self.layout.count() - 1
         while index >= 0:
             myWidget = self.layout.itemAt(index).widget()
-            myWidget.setParent(None)
+            if myWidget is not None:
+                myWidget.setParent(None)
             index -= 1
-        self.init2()
+        self.init_func()
+        # self.init_func = self.init if self.init_func == self.init2 else self.init2
 
     def start_tomograph(self):
         if self.file is None:
