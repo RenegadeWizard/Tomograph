@@ -22,6 +22,10 @@ def norm(arr: np.ndarray):
     return arr.astype(np.int16)
 
 
+class Communicate(QObject):
+    signal = pyqtSignal()
+
+
 class App(QWidget):
     def __init__(self):
         super().__init__()
@@ -57,35 +61,21 @@ class App(QWidget):
         self.file = file_chooser.file
         self.label.setText(self.file)
 
+    def update_progress(self):
+        self.progress.setValue(self.tomograph.progress)
+
     def start_tomograph(self):
         if self.file is None:
             return None
-        self.tomograph = Tomograph(500, 180, 1)
+
+        sig = Communicate()
+        sig.signal.connect(self.update_progress)
+        self.tomograph = Tomograph(500, 180, 1, sig)
         image = cv2.imread(self.file, 0).astype('int16')
-        # radon = self.tomograph.radon_transform(image)
-        # iradon = self.tomograph.iradon_transform(radon)
+
         rad_th = self.RadonThread(self.tomograph, image)
         rad_th.setDaemon(True)
         rad_th.start()
-        while rad_th.is_alive():
-            self.progress.setValue(rad_th.tomograph.progress)
-            QApplication.processEvents()
-
-        iradon = norm(rad_th.iradon)
-
-        # tomograph.write_dicom(image, "lol")
-        self.tomograph.write_dicom(iradon, "iradon")
-        # print("lol")
-
-
-
-        plt.subplot(2, 2, 1), plt.imshow(image, cmap='gray')
-        plt.xticks([]), plt.yticks([])
-        plt.subplot(2, 2, 2), plt.imshow(rad_th.radon, cmap='gray')
-        plt.xticks([]), plt.yticks([])
-        plt.subplot(2, 2, 3), plt.imshow(iradon.astype(np.int16), cmap='gray')
-        plt.subplot(2, 2, 4), plt.imshow(self.tomograph.read_dicom("out/iradon"), cmap='gray')
-        plt.show()
 
     @staticmethod
     def add_label(title, size=16):
@@ -133,14 +123,23 @@ class App(QWidget):
         def run(self):
             self.radon = self.tomograph.radon_transform(self.image)
             self.iradon = self.tomograph.iradon_transform(self.radon)
+            self.iradon = norm(self.iradon)
+            plt.subplot(2, 2, 1), plt.imshow(self.image, cmap='gray')
+            plt.xticks([]), plt.yticks([])
+            plt.subplot(2, 2, 2), plt.imshow(self.radon, cmap='gray')
+            plt.xticks([]), plt.yticks([])
+            plt.subplot(2, 2, 3), plt.imshow(self.iradon.astype(np.int16), cmap='gray')
+            # plt.subplot(2, 2, 4), plt.imshow(self.tomograph.read_dicom("out/iradon"), cmap='gray')
+            plt.show()
 
 
 class Tomograph:
-    def __init__(self, emiter_detector_count, angular_extent, step_angle):
+    def __init__(self, emiter_detector_count, angular_extent, step_angle, signal):
         self.emiter_detector_count = emiter_detector_count
         self.angular_extent = angular_extent
         self.step_angle = step_angle
         self.progress = 0
+        self.signal = signal
 
     def radon_transform(self, image, with_steps=False):
         # prepare useful values
@@ -188,6 +187,7 @@ class Tomograph:
 
             radon_image.append(lines_sum)
             self.progress = 100 * i/len(angle_) + 1
+            self.signal.signal.emit()
             # if with_steps==True:
             #   plt.imshow(radon_image, cmap='gray')
             #    plt.xticks([]), plt.yticks([])
