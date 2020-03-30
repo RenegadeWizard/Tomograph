@@ -8,9 +8,8 @@ from PyQt5.QtGui import *
 from PyQt5.QtCore import *
 import PyQt5
 import pydicom
-from pydicom.data import get_testdata_file
 from pydicom.dataset import Dataset, FileDataset
-import SimpleITK as sitk
+import threading
 
 
 def norm(arr: np.ndarray):
@@ -18,6 +17,25 @@ def norm(arr: np.ndarray):
     arr = arr - np.amin(arr)
     arr = (arr / np.amax(arr)) * 255
     return arr.astype(np.int16)
+
+
+class Communicate(QObject):
+    signal = pyqtSignal()
+    end = pyqtSignal()
+
+
+def get_qimage(image: np.ndarray):
+    assert (np.max(image) <= 255)
+    # image8 = image.astype(np.uint8, order='C', casting='unsafe')
+    image = image.astype(np.uint8, order='C', casting='unsafe')
+    height, width = image.shape
+    bytesPerLine = 3 * width
+
+    image = QImage(image.data, width//3, height//3, bytesPerLine,
+                       QImage.Format_RGB888)
+
+    image = image.rgbSwapped()
+    return image
 
 
 class App(QWidget):
@@ -28,63 +46,83 @@ class App(QWidget):
         self.top = 50
         self.width = 1000
         self.height = 750
+        self.layout = QVBoxLayout()
         self.file = None
         self.label = None
-        self.with_steps=False
-        self.with_convolve=False
-        self.with_dicom=False
+        self.tomograph = None
+        self.progress = None
+        self.slider = None
+        self.with_steps = False
+        self.with_convolve = False
+        self.with_dicom = False
         self.init()
+        self.setLayout(self.layout)
+        self.show()
 
     def init(self):
         self.setWindowTitle(self.title)
         self.setGeometry(self.left, self.top, self.width, self.height)
-        layout = QVBoxLayout()
-        layout.addWidget(self.add_label("Tomograf", 45))
+        self.layout.addWidget(self.add_label("Tomograf", 45))
         self.label = self.add_label("Nie wybrano pliku")
-        layout.addWidget(self.label)
-        layout.addWidget(self.add_button("Wybierz plik", self.choose_file))
+        self.layout.addWidget(self.label)
+        self.progress = QProgressBar()
+        self.layout.addWidget(self.progress)
+        self.layout.addWidget(self.add_button("Wybierz plik", self.choose_file))
         self.steps = QCheckBox("show steps")
-        self.steps.stateChanged.connect(lambda:self.box_state(self.steps))
-        layout.addWidget(self.steps)
+        self.steps.stateChanged.connect(lambda: self.box_state(self.steps))
+        self.layout.addWidget(self.steps)
         self.conv = QCheckBox("with convolution")
         self.conv.stateChanged.connect(lambda: self.box_state(self.conv))
-        layout.addWidget(self.conv)
+        self.layout.addWidget(self.conv)
         self.dicom = QCheckBox("with dicom")
         self.dicom.stateChanged.connect(lambda: self.box_state(self.dicom))
-        layout.addWidget(self.dicom)
+        self.layout.addWidget(self.dicom)
 
         self.onlyInt = QIntValidator()
 
-        layout.addWidget(self.add_label("Liczba detektorów/emiterów:", 10))
+        self.layout.addWidget(self.add_label("Liczba detektorów/emiterów:", 10))
         self.info1 = QLineEdit()
         self.info1.setValidator(self.onlyInt)
-        layout.addWidget(self.info1)
+        self.layout.addWidget(self.info1)
 
-        layout.addWidget(self.add_label("Rozpiętość kątowa (w stopniach):", 10))
+        self.layout.addWidget(self.add_label("Rozpiętość kątowa (w stopniach):", 10))
         self.info2 = QLineEdit()
         self.info2.setValidator(self.onlyInt)
-        layout.addWidget(self.info2)
+        self.layout.addWidget(self.info2)
 
-        layout.addWidget(self.add_label("Krok układu (w stopniach):", 10))
+        self.layout.addWidget(self.add_label("Krok układu (w stopniach):", 10))
         self.info3 = QLineEdit()
         self.info3.setValidator(self.onlyInt)
-        layout.addWidget(self.info3)
+        self.layout.addWidget(self.info3)
 
-        layout.addWidget(self.add_button("Rozpocznij tomograf", self.start_tomograph))
+        self.layout.addWidget(self.add_button("Rozpocznij tomograf", self.start_tomograph))
 
-        self.setLayout(layout)
-        self.show()
+    def init2(self):
+        hbox = QHBoxLayout()
+        hbox.addWidget(self.add_image(self.tomograph.sinogram))
+        hbox.addWidget(self.add_image(self.tomograph.iradon))
+        self.layout.addLayout(hbox)
+        self.slider = QSlider(Qt.Horizontal)
+        self.slider.valueChanged.connect(self.on_slider)
+        self.slider.setMaximum(100)
+        self.slider.setMinimum(1)
+        self.slider.setValue(100)
 
-    def box_state(self,type):
+        self.layout.addWidget(self.slider)
+
+    def on_slider(self):
+        print(self.slider.value())
+
+    def box_state(self, type):
         if type.text() == "show steps":
-            if type.isChecked() == True:
-                self.with_steps=True
+            if type.isChecked():
+                self.with_steps = True
         if type.text() == "with convolution":
-            if type.isChecked() == True:
-                self.with_convolve=True
+            if type.isChecked():
+                self.with_convolve = True
         if type.text() == "with dicom":
-            if type.isChecked() == True:
-                self.with_dicom=True
+            if type.isChecked():
+                self.with_dicom = True
 
     def choose_file(self):
         file_chooser = self.FileChooser()
@@ -93,28 +131,30 @@ class App(QWidget):
         self.file = file_chooser.file
         self.label.setText(self.file)
 
+    def update_progress(self):
+        self.progress.setValue(self.tomograph.progress)
+
+    def show_results(self):
+        index = self.layout.count() - 1
+        while index >= 0:
+            myWidget = self.layout.itemAt(index).widget()
+            myWidget.setParent(None)
+            index -= 1
+        self.init2()
+
     def start_tomograph(self):
         if self.file is None:
             return None
-        tomograph = Tomograph(int(self.info1.text()), int(self.info2.text()), int(self.info3.text()))
+
+        sig = Communicate()
+        sig.signal.connect(self.update_progress)
+        sig.end.connect(self.show_results)
+        self.tomograph = Tomograph(sig, int(self.info1.text()), int(self.info2.text()), int(self.info3.text()))
         image = cv2.imread(self.file, 0).astype('int16')
-        radon = tomograph.radon_transform(image,self.with_steps)
-        iradon = tomograph.iradon_transform(radon,self.with_steps,self.with_convolve)
 
-        if(self.with_dicom):
-            iradon = norm(iradon)
-            tomograph.write_dicom(iradon, "iradon")
-
-        plt.subplot(2, 2, 1), plt.imshow(image, cmap='gray')
-        plt.xticks([]), plt.yticks([])
-        plt.subplot(2, 2, 2), plt.imshow(radon, cmap='gray')
-        plt.xticks([]), plt.yticks([])
-        if(self.with_dicom):
-            plt.subplot(2, 2, 3), plt.imshow(iradon.astype(np.int16), cmap='gray')
-            plt.subplot(2, 2, 4), plt.imshow(tomograph.read_dicom("out/iradon"), cmap='gray')
-        else:
-            plt.subplot(2, 2, 3), plt.imshow(iradon, cmap='gray')
-        plt.show()
+        rad_th = self.RadonThread(self.tomograph, image, self.with_steps, self.with_convolve, self.with_dicom)
+        rad_th.setDaemon(True)
+        rad_th.start()
 
     @staticmethod
     def add_label(title, size=16):
@@ -128,6 +168,13 @@ class App(QWidget):
         button = QPushButton(title)
         button.clicked.connect(method)
         return button
+
+    @staticmethod
+    def add_image(image, label="image"):
+        img = QLabel(label)
+        img.setAlignment(Qt.AlignCenter)
+        img.setPixmap(QPixmap(get_qimage(image)).scaled(256, 256, Qt.KeepAspectRatio))
+        return img
 
     class FileChooser(QWidget):
         def __init__(self):
@@ -151,12 +198,46 @@ class App(QWidget):
             if file_name:
                 self.file = file_name
 
+    class RadonThread(threading.Thread):
+        def __init__(self, tomograph, image, with_steps, with_convolve, with_dicom):
+            super().__init__()
+            self.tomograph = tomograph
+            self.image = image
+            self.radon = None
+            self.iradon = None
+            self.with_steps = with_steps
+            self.with_convolve = with_convolve
+            self.with_dicom = with_dicom
+
+        def run(self):
+            self.radon = self.tomograph.radon_transform(self.image, self.with_steps)
+            self.iradon = self.tomograph.iradon_transform(self.radon, self.with_steps, self.with_convolve)
+
+            if self.with_dicom:
+                self.iradon = norm(self.iradon)
+                self.tomograph.write_dicom(self.iradon, "iradon")
+
+            plt.subplot(2, 2, 1), plt.imshow(self.image, cmap='gray')
+            plt.xticks([]), plt.yticks([])
+            plt.subplot(2, 2, 2), plt.imshow(self.radon, cmap='gray')
+            plt.xticks([]), plt.yticks([])
+            if self.with_dicom:
+                plt.subplot(2, 2, 3), plt.imshow(self.iradon.astype(np.int16), cmap='gray')
+                plt.subplot(2, 2, 4), plt.imshow(self.tomograph.read_dicom("out/iradon"), cmap='gray')
+            else:
+                plt.subplot(2, 2, 3), plt.imshow(self.iradon, cmap='gray')
+            plt.show()
+
 
 class Tomograph:
-    def __init__(self, emiter_detector_count=500, angular_extent=180, step_angle=1):
+    def __init__(self, signal, emiter_detector_count=500, angular_extent=180, step_angle=1):
         self.emiter_detector_count = emiter_detector_count
         self.angular_extent = angular_extent
         self.step_angle = step_angle
+        self.progress = 0
+        self.signal = signal
+        self.sinogram = None
+        self.iradon = None
 
     def radon_transform(self, image, with_steps=False):
         # prepare useful values
@@ -177,7 +258,7 @@ class Tomograph:
         radon_image = []
 
         # iterate through angle list to obtain the result sinogram
-        for _, angle in enumerate(np.deg2rad(angle_)):
+        for i, angle in enumerate(np.deg2rad(angle_)):
             lines_sum = []
             for j in range(self.emiter_detector_count):
                 
@@ -203,10 +284,13 @@ class Tomograph:
                 lines_sum.append(actual_sum)
 
             radon_image.append(lines_sum)
+            self.progress = 100 * i/len(angle_) + 1
+            self.signal.signal.emit()
             # if with_steps==True:
             #   plt.imshow(radon_image, cmap='gray')
             #    plt.xticks([]), plt.yticks([])
             #    plt.show()
+        self.sinogram = norm(np.rot90(radon_image))
         return np.rot90(radon_image)
 
     def iradon_transform(self, sinogram, with_steps=False,with_convolve=True):
@@ -239,7 +323,8 @@ class Tomograph:
             base_iradon += step
 
         iradon = np.flipud(base_iradon)
-
+        self.iradon = norm(iradon)
+        self.signal.end.emit()
         return iradon
 
     def write_dicom(self, image, file_name):
