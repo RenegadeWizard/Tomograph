@@ -56,6 +56,7 @@ class App(QWidget):
         self.with_steps = False
         self.with_convolve = False
         self.with_dicom = False
+        self.is_busy = False
         self.init()
         self.setLayout(self.layout)
         self.init_func = self.init2
@@ -120,8 +121,15 @@ class App(QWidget):
 
     def on_slider(self):
         self.p_label.setText(str(self.slider.value()))
-        self.sinogram_image.setPixmap(QPixmap(get_qimage(self.tomograph.sinogram[:, :int(self.tomograph.sinogram.shape[1] * self.slider.value() / 100)])).scaled(256, 256, Qt.KeepAspectRatio))
-
+        if not self.is_busy:
+            self.is_busy = True
+            self.tomograph.is_busy = True
+            part = self.tomograph.sinogram[:, :int(self.tomograph.sinogram.shape[1] * self.slider.value() / 100)]
+            self.sinogram_image.setPixmap(QPixmap(get_qimage(part)).scaled(256, 256, Qt.KeepAspectRatio))
+            iradon = norm(self.tomograph.iradon_transform(part, self.with_steps, self.with_convolve))
+            self.iradon_image.setPixmap(QPixmap(get_qimage(iradon)).scaled(256, 256, Qt.KeepAspectRatio))
+            self.tomograph.is_busy = False
+            self.is_busy = False
 
     def box_state(self, type):
         if type.text() == "show steps":
@@ -247,6 +255,7 @@ class Tomograph:
         self.angular_extent = angular_extent
         self.step_angle = step_angle
         self.progress = 0
+        self.is_busy = False
         self.signal = signal
         self.sinogram = None
         self.iradon = None
@@ -305,9 +314,9 @@ class Tomograph:
         self.sinogram = norm(np.rot90(radon_image))
         return np.rot90(radon_image)
 
-    def iradon_transform(self, sinogram, with_steps=False,with_convolve=True):
+    def iradon_transform(self, sinogram, with_steps=False, with_convolve=True):
         # prepare useful values
-        angle_ = [i for i in np.arange(0.0, 180.0, self.step_angle)]
+        angle_ = [i for i in np.arange(0.0, sinogram.shape[1], self.step_angle)]
         size = sinogram.shape[0]
         base_iradon = np.zeros((size, size))
 
@@ -336,7 +345,8 @@ class Tomograph:
 
         iradon = np.flipud(base_iradon)
         self.iradon = norm(iradon)
-        self.signal.end.emit()
+        if not self.is_busy:
+            self.signal.end.emit()
         return iradon
 
     def write_dicom(self, image, file_name):
