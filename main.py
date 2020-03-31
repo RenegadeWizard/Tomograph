@@ -10,6 +10,8 @@ import PyQt5
 import pydicom
 from pydicom.dataset import Dataset, FileDataset
 import threading
+from sklearn.metrics import mean_squared_error
+from skimage.transform import rescale, downscale_local_mean
 
 
 def norm(arr: np.ndarray):
@@ -211,7 +213,7 @@ class App(QWidget):
 
         def run(self):
             self.radon = self.tomograph.radon_transform(self.image, self.with_steps)
-            self.iradon = self.tomograph.iradon_transform(self.radon, self.with_steps, self.with_convolve)
+            self.iradon = self.tomograph.iradon_transform(self.image, self.radon, self.with_steps, self.with_convolve)
 
             if self.with_dicom:
                 self.iradon = norm(self.iradon)
@@ -238,6 +240,16 @@ class Tomograph:
         self.signal = signal
         self.sinogram = None
         self.iradon = None
+
+    def count_RMSE(self,image, iradonimage):
+        image = norm(image)
+        iradonimage=norm(np.flipud(iradonimage))
+        to_normA = iradonimage.shape[0] /image.shape[0]
+        image_to_RMSE=downscale_local_mean(image,(int(1/to_normA)+1,int(1/to_normA)+1))
+        to_norm_B=image_to_RMSE.shape[0]/iradonimage.shape[0]
+        image_to_RMSE=rescale(image_to_RMSE,1/to_norm_B)
+
+        return math.sqrt(mean_squared_error(image_to_RMSE,iradonimage))
 
     def radon_transform(self, image, with_steps=False):
         # prepare useful values
@@ -293,7 +305,7 @@ class Tomograph:
         self.sinogram = norm(np.rot90(radon_image))
         return np.rot90(radon_image)
 
-    def iradon_transform(self, sinogram, with_steps=False,with_convolve=True):
+    def iradon_transform(self, image, sinogram, with_steps=False,with_convolve=False):
         # prepare useful values
         angle_ = [i for i in np.arange(0.0, 180.0, self.step_angle)]
         size = sinogram.shape[0]
@@ -321,6 +333,7 @@ class Tomograph:
                 sinogram_part = np.convolve(sinogram_part, np.array(filter1),mode='same')
             step[k, l] = sinogram_part[XrotCor[k, l]]
             base_iradon += step
+            print("Actual RMSE is " + str(self.count_RMSE(image, base_iradon)))
 
         iradon = np.flipud(base_iradon)
         self.iradon = norm(iradon)
