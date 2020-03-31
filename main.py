@@ -10,6 +10,7 @@ from PyQt5.QtGui import *
 from PyQt5.QtCore import *
 import PyQt5
 import pydicom
+from numpy.fft import fft, ifft
 from pydicom.dataset import Dataset, FileDataset
 import threading
 from sklearn.metrics import mean_squared_error
@@ -36,8 +37,8 @@ def get_qimage(image: np.ndarray):
     height, width = image.shape
     bytesPerLine = 3 * width
 
-    image = QImage(image.data, width//3, height//3, bytesPerLine,
-                       QImage.Format_RGB888)
+    image = QImage(image.data, width // 3, height // 3, bytesPerLine,
+                   QImage.Format_RGB888)
 
     image = image.rgbSwapped()
     return image
@@ -141,17 +142,18 @@ class App(QWidget):
         self.layout.addWidget(self.add_button("Zapisz", self.save))
 
     def save(self):
-        print("Name: "+self.patient_name.text())
+        print("Name: " + self.patient_name.text())
         self.patient_name = None if self.patient_name.text() == '' else self.patient_name.text()
-        print("Birth: "+self.patient_birth.text())
+        print("Birth: " + self.patient_birth.text())
         self.patient_birth = None if self.patient_birth.text() == '' else self.patient_birth.text()
-        print("Gender: "+self.patient_gender.text())
+        print("Gender: " + self.patient_gender.text())
         self.patient_gender = None if self.patient_gender.text() == '' else self.patient_gender.text()
         print("Age: " + self.age.text())
         self.age = None if self.age.text() == '' else self.age.text()
-        print("Comment: "+self.comment.text())
+        print("Comment: " + self.comment.text())
         self.comment = None if self.comment.text() == '' else self.comment.text()
-        self.tomograph.write_dicom(self.tomograph.iradon, self.patient_name.replace(" ", ""), self.patient_name, self.patient_birth, self.patient_gender, self.age, self.comment)
+        self.tomograph.write_dicom(self.tomograph.iradon, self.patient_name.replace(" ", ""), self.patient_name,
+                                   self.patient_birth, self.patient_gender, self.age, self.comment)
 
     def on_slider(self):
         self.p_label.setText(str(self.slider.value()))
@@ -160,7 +162,8 @@ class App(QWidget):
             self.tomograph.is_busy = True
             part = self.tomograph.sinogram[:, :int(self.tomograph.sinogram.shape[1] * self.slider.value() / 100)]
             self.sinogram_image.setPixmap(QPixmap(get_qimage(part)).scaled(256, 256, Qt.KeepAspectRatio))
-            iradon = norm(self.tomograph.iradon_transform(self.tomograph.image, part, self.with_steps, self.with_convolve))
+            iradon = norm(
+                self.tomograph.iradon_transform(self.tomograph.image, part, self.with_steps, self.with_convolve))
             self.iradon_image.setPixmap(QPixmap(get_qimage(iradon)).scaled(256, 256, Qt.KeepAspectRatio))
             self.tomograph.is_busy = False
             self.is_busy = False
@@ -278,16 +281,16 @@ class App(QWidget):
             #     self.iradon = norm(self.iradon)
             #     self.tomograph.write_dicom(self.iradon, "iradon")
 
-            # plt.subplot(2, 2, 1), plt.imshow(self.image, cmap='gray')
-            # plt.xticks([]), plt.yticks([])
-            # plt.subplot(2, 2, 2), plt.imshow(self.radon, cmap='gray')
-            # plt.xticks([]), plt.yticks([])
+            plt.subplot(2, 2, 1), plt.imshow(self.image, cmap='gray')
+            plt.xticks([]), plt.yticks([])
+            plt.subplot(2, 2, 2), plt.imshow(self.radon, cmap='gray')
+            plt.xticks([]), plt.yticks([])
             # if self.with_dicom:
             #     plt.subplot(2, 2, 3), plt.imshow(self.iradon.astype(np.int16), cmap='gray')
             #     plt.subplot(2, 2, 4), plt.imshow(self.tomograph.read_dicom("out/iradon"), cmap='gray')
             # else:
-            #     plt.subplot(2, 2, 3), plt.imshow(self.iradon, cmap='gray')
-            # plt.show()
+            plt.subplot(2, 2, 3), plt.imshow(self.iradon, cmap='gray')
+            plt.show()
 
 
 class Tomograph:
@@ -302,15 +305,15 @@ class Tomograph:
         self.iradon = None
         self.image = None
 
-    def count_RMSE(self,image, iradonimage):
+    def count_RMSE(self, image, iradonimage):
         image = norm(image)
-        iradonimage=norm(np.flipud(iradonimage))
-        to_normA = iradonimage.shape[0] /image.shape[0]
-        image_to_RMSE=downscale_local_mean(image,(int(1/to_normA)+1,int(1/to_normA)+1))
-        to_norm_B=image_to_RMSE.shape[0]/iradonimage.shape[0]
-        image_to_RMSE=rescale(image_to_RMSE,1/to_norm_B)
+        iradonimage = norm(np.flipud(iradonimage))
+        to_normA = iradonimage.shape[0] / image.shape[0]
+        image_to_RMSE = downscale_local_mean(image, (int(1 / to_normA) + 1, int(1 / to_normA) + 1))
+        to_norm_B = image_to_RMSE.shape[0] / iradonimage.shape[0]
+        image_to_RMSE = rescale(image_to_RMSE, 1 / to_norm_B)
 
-        return math.sqrt(mean_squared_error(image_to_RMSE,iradonimage))
+        return math.sqrt(mean_squared_error(image_to_RMSE, iradonimage))
 
     def radon_transform(self, image, with_steps=False):
         # prepare useful values
@@ -335,7 +338,7 @@ class Tomograph:
         for i, angle in enumerate(np.deg2rad(angle_)):
             lines_sum = []
             for j in range(self.emiter_detector_count):
-                
+
                 x1 = int(r * math.cos(
                     angle + math.pi - np.deg2rad(self.angular_extent) / 2 + (j * np.deg2rad(self.angular_extent)) / (
                             self.emiter_detector_count - 1)) + center)
@@ -358,7 +361,7 @@ class Tomograph:
                 lines_sum.append(actual_sum)
 
             radon_image.append(lines_sum)
-            self.progress = 100 * i/len(angle_) + 1
+            self.progress = 100 * i / len(angle_) + 1
             self.signal.signal.emit()
             # if with_steps==True:
             #   plt.imshow(radon_image, cmap='gray')
@@ -378,24 +381,23 @@ class Tomograph:
         y = x.copy()
         Y, X = np.meshgrid(-x, y)
 
-        #in each iteration:
-        #1. set rotated x in mesh grid form
-        #2. move back to original image coords, round values
-        #3. take only available cords from base grid
-        #4. take one projection from sinogram
-        #5. proceed the part of backprojection
+        # in each iteration:
+        # 1. set rotated x in mesh grid form
+        # 2. move back to original image coords, round values
+        # 3. take only available cords from base grid
+        # 4. take one projection from sinogram
+        # 5. proceed the part of backprojection
         for i, angle in enumerate(np.deg2rad(angle_)):
             Xrot = X * math.sin(angle) - Y * math.cos(angle)
             XrotCor = (np.round(Xrot + size / 2)).astype('int')
             step = np.zeros((size, size))
             k, l = np.where((XrotCor >= 0) & (XrotCor <= (size - 1)))
             sinogram_part = sinogram[:, i]
-            if (with_convolve):
-                filter1=[5/8 for i in range(0,len(sinogram_part))]
-                sinogram_part = np.convolve(sinogram_part, np.array(filter1),mode='same')
+            if with_convolve:
+                sinogram_part = self.convolve(sinogram_part, 9)
             step[k, l] = sinogram_part[XrotCor[k, l]]
             base_iradon += step
-            print("Actual RMSE is " + str(self.count_RMSE(image, base_iradon)))
+            # print("Actual RMSE is " + str(self.count_RMSE(image, base_iradon)))
 
         iradon = np.flipud(base_iradon)
         self.iradon = norm(iradon)
@@ -403,7 +405,20 @@ class Tomograph:
             self.signal.end.emit()
         return iradon
 
-    def write_dicom(self, image, file_name, patient_name=None, patient_birth=None, patient_gender=None, patient_age=None, comment=None):
+    @staticmethod
+    def convolve(sinogram, size):
+        if size % 2 == 0:
+            size += 1
+        center = size // 2
+        kernel = np.zeros(size)
+        for i in range(2, center+1, 2):
+            kernel[center-i] = kernel[center+i] = ((-4)/(np.pi))/i**2
+        kernel[center] = 1
+        return np.convolve(sinogram, kernel, mode='same')
+
+    @staticmethod
+    def write_dicom(image, file_name, patient_name=None, patient_birth=None, patient_gender=None,
+                    patient_age=None, comment=None):
         meta = Dataset()
         meta.MediaStorageSOPClassUID = '1.1'
         meta.MediaStorageSOPInstanceUID = '1.2'
@@ -442,10 +457,11 @@ class Tomograph:
         ds.Columns = image.shape[1]
         ds.Rows = image.shape[0]
         ds.PixelData = image.tostring()
-        ds.save_as("out/"+file_name + '.dcm')
+        ds.save_as("out/" + file_name + '.dcm')
 
-    def read_dicom(self, filename):
-        ds = pydicom.dcmread(filename+".dcm")
+    @staticmethod
+    def read_dicom(filename):
+        ds = pydicom.dcmread(filename + ".dcm")
         return ds.pixel_array
 
 
