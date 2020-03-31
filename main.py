@@ -1,3 +1,5 @@
+from datetime import date
+
 import cv2
 import numpy as np
 import math
@@ -12,6 +14,8 @@ from pydicom.dataset import Dataset, FileDataset
 import threading
 from sklearn.metrics import mean_squared_error
 from skimage.transform import rescale, downscale_local_mean
+
+from pydicom.uid import ImplicitVRLittleEndian
 
 
 def norm(arr: np.ndarray):
@@ -28,7 +32,6 @@ class Communicate(QObject):
 
 def get_qimage(image: np.ndarray):
     assert (np.max(image) <= 255)
-    # image8 = image.astype(np.uint8, order='C', casting='unsafe')
     image = image.astype(np.uint8, order='C', casting='unsafe')
     height, width = image.shape
     bytesPerLine = 3 * width
@@ -54,11 +57,16 @@ class App(QWidget):
         self.tomograph = None
         self.progress = None
         self.slider = None
+        self.sinogram_image = None
+        self.iradon_image = None
         self.with_steps = False
         self.with_convolve = False
         self.with_dicom = False
+        self.is_busy = False
         self.init()
         self.setLayout(self.layout)
+        self.init_func = self.init2
+        self.p_label = None
         self.show()
 
     def init(self):
@@ -101,19 +109,61 @@ class App(QWidget):
 
     def init2(self):
         hbox = QHBoxLayout()
-        hbox.addWidget(self.add_image(self.tomograph.sinogram))
-        hbox.addWidget(self.add_image(self.tomograph.iradon))
+        self.sinogram_image = self.add_image(self.tomograph.sinogram)
+        hbox.addWidget(self.sinogram_image)
+        self.iradon_image = self.add_image(self.tomograph.iradon)
+        hbox.addWidget(self.iradon_image)
+        # self.layout.addWidget(self.add_button("Wróć", self.show_results))
         self.layout.addLayout(hbox)
+        self.p_label = self.add_label("100")
+        self.layout.addWidget(self.p_label)
         self.slider = QSlider(Qt.Horizontal)
-        self.slider.valueChanged.connect(self.on_slider)
         self.slider.setMaximum(100)
         self.slider.setMinimum(1)
         self.slider.setValue(100)
-
+        self.slider.valueChanged.connect(self.on_slider)
         self.layout.addWidget(self.slider)
+        self.patient_name = self.add_text_field()
+        self.patient_birth = self.add_text_field()
+        self.comment = self.add_text_field()
+        self.patient_gender = self.add_text_field()
+        self.age = self.add_text_field()
+        self.layout.addWidget(self.add_label("Imię i nazwisko:"))
+        self.layout.addWidget(self.patient_name)
+        self.layout.addWidget(self.add_label("Data urodzenie:"))
+        self.layout.addWidget(self.patient_birth)
+        self.layout.addWidget(self.add_label("Płeć:"))
+        self.layout.addWidget(self.patient_gender)
+        self.layout.addWidget(self.add_label("Wiek:"))
+        self.layout.addWidget(self.age)
+        self.layout.addWidget(self.add_label("Komentarz:"))
+        self.layout.addWidget(self.comment)
+        self.layout.addWidget(self.add_button("Zapisz", self.save))
+
+    def save(self):
+        print("Name: "+self.patient_name.text())
+        self.patient_name = None if self.patient_name.text() == '' else self.patient_name.text()
+        print("Birth: "+self.patient_birth.text())
+        self.patient_birth = None if self.patient_birth.text() == '' else self.patient_birth.text()
+        print("Gender: "+self.patient_gender.text())
+        self.patient_gender = None if self.patient_gender.text() == '' else self.patient_gender.text()
+        print("Age: " + self.age.text())
+        self.age = None if self.age.text() == '' else self.age.text()
+        print("Comment: "+self.comment.text())
+        self.comment = None if self.comment.text() == '' else self.comment.text()
+        self.tomograph.write_dicom(self.tomograph.iradon, self.patient_name.replace(" ", ""), self.patient_name, self.patient_birth, self.patient_gender, self.age, self.comment)
 
     def on_slider(self):
-        print(self.slider.value())
+        self.p_label.setText(str(self.slider.value()))
+        if not self.is_busy:
+            self.is_busy = True
+            self.tomograph.is_busy = True
+            part = self.tomograph.sinogram[:, :int(self.tomograph.sinogram.shape[1] * self.slider.value() / 100)]
+            self.sinogram_image.setPixmap(QPixmap(get_qimage(part)).scaled(256, 256, Qt.KeepAspectRatio))
+            iradon = norm(self.tomograph.iradon_transform(self.tomograph.image, part, self.with_steps, self.with_convolve))
+            self.iradon_image.setPixmap(QPixmap(get_qimage(iradon)).scaled(256, 256, Qt.KeepAspectRatio))
+            self.tomograph.is_busy = False
+            self.is_busy = False
 
     def box_state(self, type):
         if type.text() == "show steps":
@@ -140,9 +190,11 @@ class App(QWidget):
         index = self.layout.count() - 1
         while index >= 0:
             myWidget = self.layout.itemAt(index).widget()
-            myWidget.setParent(None)
+            if myWidget is not None:
+                myWidget.setParent(None)
             index -= 1
-        self.init2()
+        self.init_func()
+        # self.init_func = self.init if self.init_func == self.init2 else self.init2
 
     def start_tomograph(self):
         if self.file is None:
@@ -177,6 +229,13 @@ class App(QWidget):
         img.setAlignment(Qt.AlignCenter)
         img.setPixmap(QPixmap(get_qimage(image)).scaled(256, 256, Qt.KeepAspectRatio))
         return img
+
+    @staticmethod
+    def add_text_field(validator=None):
+        text_field = QLineEdit()
+        if validator:
+            text_field.setValidator(validator)
+        return text_field
 
     class FileChooser(QWidget):
         def __init__(self):
@@ -215,20 +274,20 @@ class App(QWidget):
             self.radon = self.tomograph.radon_transform(self.image, self.with_steps)
             self.iradon = self.tomograph.iradon_transform(self.image, self.radon, self.with_steps, self.with_convolve)
 
-            if self.with_dicom:
-                self.iradon = norm(self.iradon)
-                self.tomograph.write_dicom(self.iradon, "iradon")
+            # if self.with_dicom:
+            #     self.iradon = norm(self.iradon)
+            #     self.tomograph.write_dicom(self.iradon, "iradon")
 
-            plt.subplot(2, 2, 1), plt.imshow(self.image, cmap='gray')
-            plt.xticks([]), plt.yticks([])
-            plt.subplot(2, 2, 2), plt.imshow(self.radon, cmap='gray')
-            plt.xticks([]), plt.yticks([])
-            if self.with_dicom:
-                plt.subplot(2, 2, 3), plt.imshow(self.iradon.astype(np.int16), cmap='gray')
-                plt.subplot(2, 2, 4), plt.imshow(self.tomograph.read_dicom("out/iradon"), cmap='gray')
-            else:
-                plt.subplot(2, 2, 3), plt.imshow(self.iradon, cmap='gray')
-            plt.show()
+            # plt.subplot(2, 2, 1), plt.imshow(self.image, cmap='gray')
+            # plt.xticks([]), plt.yticks([])
+            # plt.subplot(2, 2, 2), plt.imshow(self.radon, cmap='gray')
+            # plt.xticks([]), plt.yticks([])
+            # if self.with_dicom:
+            #     plt.subplot(2, 2, 3), plt.imshow(self.iradon.astype(np.int16), cmap='gray')
+            #     plt.subplot(2, 2, 4), plt.imshow(self.tomograph.read_dicom("out/iradon"), cmap='gray')
+            # else:
+            #     plt.subplot(2, 2, 3), plt.imshow(self.iradon, cmap='gray')
+            # plt.show()
 
 
 class Tomograph:
@@ -237,9 +296,11 @@ class Tomograph:
         self.angular_extent = angular_extent
         self.step_angle = step_angle
         self.progress = 0
+        self.is_busy = False
         self.signal = signal
         self.sinogram = None
         self.iradon = None
+        self.image = None
 
     def count_RMSE(self,image, iradonimage):
         image = norm(image)
@@ -253,6 +314,7 @@ class Tomograph:
 
     def radon_transform(self, image, with_steps=False):
         # prepare useful values
+        self.image = norm(image)
         angle_ = [i for i in np.arange(0.0, 180.0, self.step_angle)]
 
         # prepare image to be a square and easy to transform
@@ -305,9 +367,9 @@ class Tomograph:
         self.sinogram = norm(np.rot90(radon_image))
         return np.rot90(radon_image)
 
-    def iradon_transform(self, image, sinogram, with_steps=False,with_convolve=False):
+    def iradon_transform(self, image, sinogram, with_steps=False, with_convolve=False):
         # prepare useful values
-        angle_ = [i for i in np.arange(0.0, 180.0, self.step_angle)]
+        angle_ = [i for i in np.arange(0.0, sinogram.shape[1], self.step_angle)]
         size = sinogram.shape[0]
         base_iradon = np.zeros((size, size))
 
@@ -337,28 +399,40 @@ class Tomograph:
 
         iradon = np.flipud(base_iradon)
         self.iradon = norm(iradon)
-        self.signal.end.emit()
+        if not self.is_busy:
+            self.signal.end.emit()
         return iradon
 
-    def write_dicom(self, image, file_name):
+    def write_dicom(self, image, file_name, patient_name=None, patient_birth=None, patient_gender=None, patient_age=None, comment=None):
         meta = Dataset()
-        meta.MediaStorageSOPClassUID = '1.2.840.10008.5.1.4.1.1.2'
-        meta.MediaStorageSOPInstanceUID = pydicom.uid.generate_uid()
-        meta.TransferSyntaxUID = '1.2.840.10008.1.2'
+        meta.MediaStorageSOPClassUID = '1.1'
+        meta.MediaStorageSOPInstanceUID = '1.2'
+        meta.ImplementationClassUID = '1.3'
+        meta.TransferSyntaxUID = ImplicitVRLittleEndian
 
         ds = FileDataset(file_name + '.dcm', {}, file_meta=meta, preamble=b"\0" * 128)
-        # ds = FileDataset(file_name + '.dcm', {}, file_meta=meta)
 
-        # patient info
-        # ds.PatientsName = name
-        # ds.PatientsBirthDate = birth_day
-        # ds.PatientsSex = sex
-        # ds.PatientsAge = str(age)
-        # today = date.today()
-        # ds.StudyDate = today.strftime("%d/%m/%Y")
+        if patient_name:
+            ds.PatientsName = patient_name
+        if patient_birth:
+            ds.PatientsBirthDate = patient_birth
+        if patient_gender:
+            ds.PatientsSex = patient_gender
+        if patient_age:
+            ds.PatientsAge = patient_age
+        if comment:
+            ds.ImageComments = comment
+        today = date.today()
+        ds.StudyDate = today.strftime("%d/%m/%Y")
 
+        ds.Modality = "CT"
+        ds.SeriesInstanceUID = pydicom.uid.generate_uid()
+        ds.StudyInstanceUID = pydicom.uid.generate_uid()
+        ds.FrameOfReferenceUID = pydicom.uid.generate_uid()
+        ds.ImagesInAcquisition = "1"
+        ds.InstanceNumber = 1
         ds.SamplesPerPixel = 1
-        ds.PhotometricInterpretation = "MONOCHROME1"  # check MONOCHROME1
+        ds.PhotometricInterpretation = "MONOCHROME1"  # check MONOCHROME2
         ds.PixelRepresentation = 0
         ds.HighBit = 15
         ds.BitsStored = 16
