@@ -1,3 +1,5 @@
+from datetime import date
+
 import cv2
 import numpy as np
 import math
@@ -10,6 +12,8 @@ import PyQt5
 import pydicom
 from pydicom.dataset import Dataset, FileDataset
 import threading
+
+from pydicom.uid import ImplicitVRLittleEndian
 
 
 def norm(arr: np.ndarray):
@@ -116,8 +120,36 @@ class App(QWidget):
         self.slider.setMinimum(1)
         self.slider.setValue(100)
         self.slider.valueChanged.connect(self.on_slider)
-
         self.layout.addWidget(self.slider)
+        self.patient_name = self.add_text_field()
+        self.patient_birth = self.add_text_field()
+        self.comment = self.add_text_field()
+        self.patient_gender = self.add_text_field()
+        self.age = self.add_text_field()
+        self.layout.addWidget(self.add_label("Imię i nazwisko:"))
+        self.layout.addWidget(self.patient_name)
+        self.layout.addWidget(self.add_label("Data urodzenie:"))
+        self.layout.addWidget(self.patient_birth)
+        self.layout.addWidget(self.add_label("Płeć:"))
+        self.layout.addWidget(self.patient_gender)
+        self.layout.addWidget(self.add_label("Wiek:"))
+        self.layout.addWidget(self.age)
+        self.layout.addWidget(self.add_label("Komentarz:"))
+        self.layout.addWidget(self.comment)
+        self.layout.addWidget(self.add_button("Zapisz", self.save))
+
+    def save(self):
+        print("Name: "+self.patient_name.text())
+        self.patient_name = None if self.patient_name.text() == '' else self.patient_name.text()
+        print("Birth: "+self.patient_birth.text())
+        self.patient_birth = None if self.patient_birth.text() == '' else self.patient_birth.text()
+        print("Gender: "+self.patient_gender.text())
+        self.patient_gender = None if self.patient_gender.text() == '' else self.patient_gender.text()
+        print("Age: " + self.age.text())
+        self.age = None if self.age.text() == '' else self.age.text()
+        print("Comment: "+self.comment.text())
+        self.comment = None if self.comment.text() == '' else self.comment.text()
+        self.tomograph.write_dicom(self.tomograph.iradon, self.patient_name.replace(" ", ""), self.patient_name, self.patient_birth, self.patient_gender, self.age, self.comment)
 
     def on_slider(self):
         self.p_label.setText(str(self.slider.value()))
@@ -196,6 +228,13 @@ class App(QWidget):
         img.setPixmap(QPixmap(get_qimage(image)).scaled(256, 256, Qt.KeepAspectRatio))
         return img
 
+    @staticmethod
+    def add_text_field(validator=None):
+        text_field = QLineEdit()
+        if validator:
+            text_field.setValidator(validator)
+        return text_field
+
     class FileChooser(QWidget):
         def __init__(self):
             super().__init__()
@@ -233,20 +272,20 @@ class App(QWidget):
             self.radon = self.tomograph.radon_transform(self.image, self.with_steps)
             self.iradon = self.tomograph.iradon_transform(self.radon, self.with_steps, self.with_convolve)
 
-            if self.with_dicom:
-                self.iradon = norm(self.iradon)
-                self.tomograph.write_dicom(self.iradon, "iradon")
+            # if self.with_dicom:
+            #     self.iradon = norm(self.iradon)
+            #     self.tomograph.write_dicom(self.iradon, "iradon")
 
-            plt.subplot(2, 2, 1), plt.imshow(self.image, cmap='gray')
-            plt.xticks([]), plt.yticks([])
-            plt.subplot(2, 2, 2), plt.imshow(self.radon, cmap='gray')
-            plt.xticks([]), plt.yticks([])
-            if self.with_dicom:
-                plt.subplot(2, 2, 3), plt.imshow(self.iradon.astype(np.int16), cmap='gray')
-                plt.subplot(2, 2, 4), plt.imshow(self.tomograph.read_dicom("out/iradon"), cmap='gray')
-            else:
-                plt.subplot(2, 2, 3), plt.imshow(self.iradon, cmap='gray')
-            plt.show()
+            # plt.subplot(2, 2, 1), plt.imshow(self.image, cmap='gray')
+            # plt.xticks([]), plt.yticks([])
+            # plt.subplot(2, 2, 2), plt.imshow(self.radon, cmap='gray')
+            # plt.xticks([]), plt.yticks([])
+            # if self.with_dicom:
+            #     plt.subplot(2, 2, 3), plt.imshow(self.iradon.astype(np.int16), cmap='gray')
+            #     plt.subplot(2, 2, 4), plt.imshow(self.tomograph.read_dicom("out/iradon"), cmap='gray')
+            # else:
+            #     plt.subplot(2, 2, 3), plt.imshow(self.iradon, cmap='gray')
+            # plt.show()
 
 
 class Tomograph:
@@ -349,25 +388,36 @@ class Tomograph:
             self.signal.end.emit()
         return iradon
 
-    def write_dicom(self, image, file_name):
+    def write_dicom(self, image, file_name, patient_name=None, patient_birth=None, patient_gender=None, patient_age=None, comment=None):
         meta = Dataset()
-        meta.MediaStorageSOPClassUID = '1.2.840.10008.5.1.4.1.1.2'
-        meta.MediaStorageSOPInstanceUID = pydicom.uid.generate_uid()
-        meta.TransferSyntaxUID = '1.2.840.10008.1.2'
+        meta.MediaStorageSOPClassUID = '1.1'
+        meta.MediaStorageSOPInstanceUID = '1.2'
+        meta.ImplementationClassUID = '1.3'
+        meta.TransferSyntaxUID = ImplicitVRLittleEndian
 
         ds = FileDataset(file_name + '.dcm', {}, file_meta=meta, preamble=b"\0" * 128)
-        # ds = FileDataset(file_name + '.dcm', {}, file_meta=meta)
 
-        # patient info
-        # ds.PatientsName = name
-        # ds.PatientsBirthDate = birth_day
-        # ds.PatientsSex = sex
-        # ds.PatientsAge = str(age)
-        # today = date.today()
-        # ds.StudyDate = today.strftime("%d/%m/%Y")
+        if patient_name:
+            ds.PatientsName = patient_name
+        if patient_birth:
+            ds.PatientsBirthDate = patient_birth
+        if patient_gender:
+            ds.PatientsSex = patient_gender
+        if patient_age:
+            ds.PatientsAge = patient_age
+        if comment:
+            ds.ImageComments = comment
+        today = date.today()
+        ds.StudyDate = today.strftime("%d/%m/%Y")
 
+        ds.Modality = "CT"
+        ds.SeriesInstanceUID = pydicom.uid.generate_uid()
+        ds.StudyInstanceUID = pydicom.uid.generate_uid()
+        ds.FrameOfReferenceUID = pydicom.uid.generate_uid()
+        ds.ImagesInAcquisition = "1"
+        ds.InstanceNumber = 1
         ds.SamplesPerPixel = 1
-        ds.PhotometricInterpretation = "MONOCHROME1"  # check MONOCHROME1
+        ds.PhotometricInterpretation = "MONOCHROME1"  # check MONOCHROME2
         ds.PixelRepresentation = 0
         ds.HighBit = 15
         ds.BitsStored = 16
