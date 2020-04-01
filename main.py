@@ -68,6 +68,7 @@ class App(QWidget):
         self.setLayout(self.layout)
         self.init_func = self.init2
         self.p_label = None
+        self.read_dicom = False
         self.show()
 
     def init(self):
@@ -85,23 +86,20 @@ class App(QWidget):
         self.conv = QCheckBox("with convolution")
         self.conv.stateChanged.connect(lambda: self.box_state(self.conv))
         self.layout.addWidget(self.conv)
-        self.dicom = QCheckBox("with dicom")
-        self.dicom.stateChanged.connect(lambda: self.box_state(self.dicom))
-        self.layout.addWidget(self.dicom)
 
         self.onlyInt = QIntValidator()
 
-        self.layout.addWidget(self.add_label("Liczba detektorów/emiterów:", 10))
+        self.layout.addWidget(self.add_label("Liczba detektorów/emiterów:"))
         self.info1 = QLineEdit()
         self.info1.setValidator(self.onlyInt)
         self.layout.addWidget(self.info1)
 
-        self.layout.addWidget(self.add_label("Rozpiętość kątowa (w stopniach):", 10))
+        self.layout.addWidget(self.add_label("Rozpiętość kątowa (w stopniach):"))
         self.info2 = QLineEdit()
         self.info2.setValidator(self.onlyInt)
         self.layout.addWidget(self.info2)
 
-        self.layout.addWidget(self.add_label("Krok układu (w stopniach):", 10))
+        self.layout.addWidget(self.add_label("Krok układu (w stopniach):"))
         self.info3 = QLineEdit()
         self.info3.setValidator(self.onlyInt)
         self.layout.addWidget(self.info3)
@@ -110,25 +108,28 @@ class App(QWidget):
 
     def init2(self):
         hbox = QHBoxLayout()
-        self.sinogram_image = self.add_image(self.tomograph.sinogram)
-        hbox.addWidget(self.sinogram_image)
+        if self.tomograph.sinogram is not None:
+            self.sinogram_image = self.add_image(self.tomograph.sinogram)
+            hbox.addWidget(self.sinogram_image)
+        else:
+            pass
         self.iradon_image = self.add_image(self.tomograph.iradon)
         hbox.addWidget(self.iradon_image)
-        # self.layout.addWidget(self.add_button("Wróć", self.show_results))
         self.layout.addLayout(hbox)
-        self.p_label = self.add_label("100")
-        self.layout.addWidget(self.p_label)
-        self.slider = QSlider(Qt.Horizontal)
-        self.slider.setMaximum(100)
-        self.slider.setMinimum(1)
-        self.slider.setValue(100)
-        self.slider.valueChanged.connect(self.on_slider)
-        self.layout.addWidget(self.slider)
-        self.patient_name = self.add_text_field()
-        self.patient_birth = self.add_text_field()
-        self.comment = self.add_text_field()
-        self.patient_gender = self.add_text_field()
-        self.age = self.add_text_field()
+        if self.with_steps and not self.read_dicom:
+            self.p_label = self.add_label("100")
+            self.layout.addWidget(self.p_label)
+            self.slider = QSlider(Qt.Horizontal)
+            self.slider.setMaximum(100)
+            self.slider.setMinimum(1)
+            self.slider.setValue(100)
+            self.slider.valueChanged.connect(self.on_slider)
+            self.layout.addWidget(self.slider)
+        self.patient_name = self.add_text_field(self.tomograph.name)
+        self.patient_birth = self.add_text_field(self.tomograph.birth)
+        self.comment = self.add_text_field(self.tomograph.comment)
+        self.patient_gender = self.add_text_field(self.tomograph.sex)
+        self.age = self.add_text_field(self.tomograph.age)
         self.layout.addWidget(self.add_label("Imię i nazwisko:"))
         self.layout.addWidget(self.patient_name)
         self.layout.addWidget(self.add_label("Data urodzenie:"))
@@ -139,7 +140,8 @@ class App(QWidget):
         self.layout.addWidget(self.age)
         self.layout.addWidget(self.add_label("Komentarz:"))
         self.layout.addWidget(self.comment)
-        self.layout.addWidget(self.add_button("Zapisz", self.save))
+        if not self.read_dicom:
+            self.layout.addWidget(self.add_button("Zapisz", self.save))
 
     def save(self):
         print("Name: " + self.patient_name.text())
@@ -197,7 +199,6 @@ class App(QWidget):
                 myWidget.setParent(None)
             index -= 1
         self.init_func()
-        # self.init_func = self.init if self.init_func == self.init2 else self.init2
 
     def start_tomograph(self):
         if self.file is None:
@@ -206,10 +207,17 @@ class App(QWidget):
         sig = Communicate()
         sig.signal.connect(self.update_progress)
         sig.end.connect(self.show_results)
-        self.tomograph = Tomograph(sig, int(self.info1.text()), int(self.info2.text()), int(self.info3.text()))
-        image = cv2.imread(self.file, 0).astype('int16')
 
-        rad_th = self.RadonThread(self.tomograph, image, self.with_steps, self.with_convolve, self.with_dicom)
+        if self.file[-4:] == '.dcm':
+            self.tomograph = Tomograph(sig)
+            self.read_dicom = True
+            image = self.tomograph.read_dicom(self.file)
+            rad_th = self.RadonThread(self.tomograph, image, self.with_steps, self.with_convolve, self.with_dicom, True)
+        else:
+            self.tomograph = Tomograph(sig, int(self.info1.text()), int(self.info2.text()), int(self.info3.text()))
+            image = cv2.imread(self.file, 0).astype('int16')
+            rad_th = self.RadonThread(self.tomograph, image, self.with_steps, self.with_convolve, self.with_dicom)
+
         rad_th.setDaemon(True)
         rad_th.start()
 
@@ -234,10 +242,12 @@ class App(QWidget):
         return img
 
     @staticmethod
-    def add_text_field(validator=None):
+    def add_text_field(text=None, validator=None):
         text_field = QLineEdit()
         if validator:
             text_field.setValidator(validator)
+        if text:
+            text_field.setText(text)
         return text_field
 
     class FileChooser(QWidget):
@@ -258,12 +268,12 @@ class App(QWidget):
             options = QFileDialog.Options()
             options |= QFileDialog.DontUseNativeDialog
             file_name, _ = QFileDialog.getOpenFileName(self, "QFileDialog.getOpenFileName()", "",
-                                                       "Pliki graficzne (*.jpg);;Wszystkie pliki (*)", options=options)
+                                                       "Pliki graficzne i pliki dicom (*.jpg *.dcm);;Wszystkie pliki (*)", options=options)
             if file_name:
                 self.file = file_name
 
     class RadonThread(threading.Thread):
-        def __init__(self, tomograph, image, with_steps, with_convolve, with_dicom):
+        def __init__(self, tomograph, image, with_steps, with_convolve, with_dicom, read_dicom=False):
             super().__init__()
             self.tomograph = tomograph
             self.image = image
@@ -272,25 +282,15 @@ class App(QWidget):
             self.with_steps = with_steps
             self.with_convolve = with_convolve
             self.with_dicom = with_dicom
+            self.read_dicom = read_dicom
 
         def run(self):
-            self.radon = self.tomograph.radon_transform(self.image, self.with_steps)
-            self.iradon = self.tomograph.iradon_transform(self.image, self.radon, self.with_steps, self.with_convolve)
-
-            # if self.with_dicom:
-            #     self.iradon = norm(self.iradon)
-            #     self.tomograph.write_dicom(self.iradon, "iradon")
-
-            plt.subplot(2, 2, 1), plt.imshow(self.image, cmap='gray')
-            plt.xticks([]), plt.yticks([])
-            plt.subplot(2, 2, 2), plt.imshow(self.radon, cmap='gray')
-            plt.xticks([]), plt.yticks([])
-            # if self.with_dicom:
-            #     plt.subplot(2, 2, 3), plt.imshow(self.iradon.astype(np.int16), cmap='gray')
-            #     plt.subplot(2, 2, 4), plt.imshow(self.tomograph.read_dicom("out/iradon"), cmap='gray')
-            # else:
-            plt.subplot(2, 2, 3), plt.imshow(self.iradon, cmap='gray')
-            plt.show()
+            if not self.read_dicom:
+                self.radon = self.tomograph.radon_transform(self.image, self.with_steps)
+                self.iradon = self.tomograph.iradon_transform(self.image, self.radon, self.with_steps, self.with_convolve)
+            else:
+                self.tomograph.iradon, self.tomograph.name, self.tomograph.birth, self.tomograph.sex, self.tomograph.age, self.tomograph.comment = self.image
+                self.tomograph.signal.end.emit()
 
 
 class Tomograph:
@@ -304,6 +304,11 @@ class Tomograph:
         self.sinogram = None
         self.iradon = None
         self.image = None
+        self.name = None
+        self.birth = None
+        self.sex = None
+        self.age = None
+        self.comment = None
 
     def count_RMSE(self, image, iradonimage):
         image = norm(image)
@@ -363,10 +368,7 @@ class Tomograph:
             radon_image.append(lines_sum)
             self.progress = 100 * i / len(angle_) + 1
             self.signal.signal.emit()
-            # if with_steps==True:
-            #   plt.imshow(radon_image, cmap='gray')
-            #    plt.xticks([]), plt.yticks([])
-            #    plt.show()
+
         self.sinogram = norm(np.rot90(radon_image))
         return np.rot90(radon_image)
 
@@ -428,13 +430,13 @@ class Tomograph:
         ds = FileDataset(file_name + '.dcm', {}, file_meta=meta, preamble=b"\0" * 128)
 
         if patient_name:
-            ds.PatientsName = patient_name
+            ds.PatientName = patient_name
         if patient_birth:
-            ds.PatientsBirthDate = patient_birth
+            ds.PatientBirthDate = patient_birth
         if patient_gender:
-            ds.PatientsSex = patient_gender
+            ds.PatientSex = patient_gender
         if patient_age:
-            ds.PatientsAge = patient_age
+            ds.PatientAge = patient_age
         if comment:
             ds.ImageComments = comment
         today = date.today()
@@ -447,7 +449,7 @@ class Tomograph:
         ds.ImagesInAcquisition = "1"
         ds.InstanceNumber = 1
         ds.SamplesPerPixel = 1
-        ds.PhotometricInterpretation = "MONOCHROME1"  # check MONOCHROME2
+        ds.PhotometricInterpretation = "MONOCHROME1"
         ds.PixelRepresentation = 0
         ds.HighBit = 15
         ds.BitsStored = 16
@@ -461,8 +463,33 @@ class Tomograph:
 
     @staticmethod
     def read_dicom(filename):
-        ds = pydicom.dcmread(filename + ".dcm")
-        return ds.pixel_array
+        ds = pydicom.dcmread(filename)
+        patient_name = None
+        patient_birth_date = None
+        patient_sex = None
+        patient_age = None
+        comment = None
+        try:
+            patient_name = str(ds.PatientName)
+        except AttributeError:
+            pass
+        try:
+            patient_birth_date = str(ds.PatientBirthDate)
+        except AttributeError:
+            pass
+        try:
+            patient_sex = str(ds.PatientSex)
+        except AttributeError:
+            pass
+        try:
+            patient_age = str(ds.PatientAge)
+        except AttributeError:
+            pass
+        try:
+            comment = str(ds.ImageComments)
+        except AttributeError:
+            pass
+        return ds.pixel_array, patient_name, patient_birth_date, patient_sex, patient_age, comment
 
 
 def main():
