@@ -214,7 +214,7 @@ class App(QWidget):
             rad_th = self.RadonThread(self.tomograph, image, self.with_steps, self.with_convolve, self.with_dicom, True)
         else:
             self.tomograph = Tomograph(sig, int(self.info1.text()), int(self.info2.text()), float(self.info3.text()))
-            image = cv2.imread(self.file, 0).astype('int16')
+            image = cv2.imread(self.file, 0)
             rad_th = self.RadonThread(self.tomograph, image, self.with_steps, self.with_convolve, self.with_dicom)
 
         rad_th.setDaemon(True)
@@ -326,17 +326,23 @@ class Tomograph:
         angle_ = [i for i in np.arange(0.0, 180.0, self.step_angle)]
 
         # prepare image to be a square and easy to transform
-        diag = max(image.shape) * math.sqrt(2)
-        pad = [int(math.ceil(diag - i)) for i in image.shape]
-        new_mean = [(i + j) // 2 for i, j in zip(image.shape, pad)]
-        old_mean = [i // 2 for i in image.shape]
-        old_width = [n - o for n, o in zip(new_mean, old_mean)]
-        width = [(o, p - o) for o, p in zip(old_width, pad)]
-        squared_image = np.pad(image, width, mode='constant', constant_values=0)
+        # diag = max(image.shape) * math.sqrt(2)
+        # pad = [int(math.ceil(diag - i)) for i in image.shape]
+        # new_mean = [(i + j) // 2 for i, j in zip(image.shape, pad)]
+        # old_mean = [i // 2 for i in image.shape]
+        # old_width = [n - o for n, o in zip(new_mean, old_mean)]
+        # width = [(o, p - o) for o, p in zip(old_width, pad)]
+        # squared_image = np.pad(image, width, mode='constant', constant_values=0)
+
+        if image.shape[0] < image.shape[1]:
+            squared_image = np.pad(image, ((0,), ((max(image.shape)-min(image.shape))//2,)), mode='constant', constant_values=0)
+        else:
+            squared_image = np.pad(image, (((max(image.shape)-min(image.shape))//2,), (0,)), mode='constant', constant_values=0)
 
         # count center of squared_image and prepare matrix filled with zeros to apply radon transform
         center = squared_image.shape[0] // 2
-        r = (squared_image.shape[0] * math.sqrt(2)) // 2
+        # r = (squared_image.shape[0] * math.sqrt(2)) // 2
+        r = (squared_image.shape[0]) // 2
         radon_image = []
 
         # iterate through angle list to obtain the result sinogram
@@ -377,6 +383,8 @@ class Tomograph:
         angle_ = [i for i in range(0, sinogram.shape[1], 1)]
         size = sinogram.shape[0]
         base_iradon = np.zeros((size, size))
+
+        # sinogram = np.pad(sinogram, (sinogram.shape[0], size))
 
         # create coordinate system centered at (x,y = 0,0)
         x = np.arange(size) - size / 2
