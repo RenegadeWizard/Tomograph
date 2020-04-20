@@ -335,9 +335,13 @@ class Tomograph:
         # squared_image = np.pad(image, width, mode='constant', constant_values=0)
 
         if image.shape[0] < image.shape[1]:
-            squared_image = np.pad(image, ((0,), ((max(image.shape)-min(image.shape))//2,)), mode='constant', constant_values=0)
+            squared_image = np.pad(image, (
+            (0,), ((max(image.shape) - min(image.shape)) // 2 + (max(image.shape) - min(image.shape)) % 2,)),
+                                   mode='constant', constant_values=0)
         else:
-            squared_image = np.pad(image, (((max(image.shape)-min(image.shape))//2,), (0,)), mode='constant', constant_values=0)
+            squared_image = np.pad(image, (
+            ((max(image.shape) - min(image.shape)) // 2 + (max(image.shape) - min(image.shape)) % 2,), (0,)),
+                                   mode='constant', constant_values=0)
 
         # count center of squared_image and prepare matrix filled with zeros to apply radon transform
         center = squared_image.shape[0] // 2
@@ -378,9 +382,12 @@ class Tomograph:
         self.sinogram = norm(np.rot90(radon_image))
         size = max(image.shape)
         if size >= self.sinogram.shape[0]:
-            sinogram = norm(np.pad(self.sinogram, (((size-self.sinogram.shape[0])//2,), (0,)), mode='constant'))
+            sinogram = norm(np.pad(self.sinogram, (
+            (((size - self.sinogram.shape[0]) // 2 + (size - self.sinogram.shape[0]) % 2),), (0,)), mode='constant'))
         else:
-            sinogram = norm(self.sinogram[(self.sinogram.shape[0]-size)//2:-(self.sinogram.shape[0]-size)//2, :])
+            sinogram = norm(self.sinogram[
+                            ((self.sinogram.shape[0] - size) // 2 + (self.sinogram.shape[0] - size) % 2):-(
+                                        self.sinogram.shape[0] - size) // 2, :])
         self.sinogram = sinogram
 
         return sinogram
