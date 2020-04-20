@@ -312,13 +312,13 @@ class Tomograph:
 
     def count_RMSE(self, image, iradonimage):
         image = norm(image)
-        iradonimage = norm(np.flipud(iradonimage))
-        to_normA = iradonimage.shape[0] / image.shape[0]
-        image_to_RMSE = downscale_local_mean(image, (int(1 / to_normA) + 1, int(1 / to_normA) + 1))
-        to_norm_B = image_to_RMSE.shape[0] / iradonimage.shape[0]
-        image_to_RMSE = rescale(image_to_RMSE, 1 / to_norm_B)
+        iradonimage = norm(iradonimage)
+        #to_normA = iradonimage.shape[0] / image.shape[0]
+        #image_to_RMSE = downscale_local_mean(image, (int(1 / to_normA) + 1, int(1 / to_normA) + 1))
+        #to_norm_B = image_to_RMSE.shape[0] / iradonimage.shape[0]
+        #image_to_RMSE = rescale(image_to_RMSE, 1 / to_norm_B)
 
-        return math.sqrt(mean_squared_error(image_to_RMSE, iradonimage))
+        return math.sqrt(math.fabs(mean_squared_error(image, iradonimage)))
 
     def radon_transform(self, image, with_steps=False):
         # prepare useful values
@@ -415,6 +415,7 @@ class Tomograph:
             base_iradon += step
 
         iradon = np.flipud(base_iradon)
+        #self.count_RMSE(image, iradon)
         self.iradon = norm(iradon)
         if not self.is_busy:
             self.signal.end.emit()
