@@ -422,7 +422,6 @@ class Tomograph:
             base_iradon += step
 
         iradon = np.flipud(base_iradon)
-        #self.count_RMSE(image, iradon)
         self.iradon = norm(iradon)
         if not self.is_busy:
             self.signal.end.emit()
