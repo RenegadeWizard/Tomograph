@@ -376,15 +376,21 @@ class Tomograph:
             self.signal.signal.emit()
 
         self.sinogram = norm(np.rot90(radon_image))
-        return np.rot90(radon_image)
+        size = max(image.shape)
+        if size >= self.sinogram.shape[0]:
+            sinogram = norm(np.pad(self.sinogram, (((size-self.sinogram.shape[0])//2,), (0,)), mode='constant'))
+        else:
+            sinogram = norm(self.sinogram[(self.sinogram.shape[0]-size)//2:-(self.sinogram.shape[0]-size)//2, :])
+        self.sinogram = sinogram
+
+        return sinogram
 
     def iradon_transform(self, image, sinogram, with_steps=False, with_convolve=False):
         # prepare useful values
         angle_ = [i for i in range(0, sinogram.shape[1], 1)]
-        size = sinogram.shape[0]
+        # size = sinogram.shape[0]
+        size = max(image.shape)
         base_iradon = np.zeros((size, size))
-
-        # sinogram = np.pad(sinogram, (sinogram.shape[0], size))
 
         # create coordinate system centered at (x,y = 0,0)
         x = np.arange(size) - size / 2
@@ -404,7 +410,7 @@ class Tomograph:
             k, l = np.where((XrotCor >= 0) & (XrotCor <= (size - 1)))
             sinogram_part = sinogram[:, i]
             if with_convolve:
-                sinogram_part = self.convolve(sinogram_part, 9)
+                sinogram_part = self.convolve(sinogram_part, 10)
             step[k, l] = sinogram_part[XrotCor[k, l]]
             base_iradon += step
 
