@@ -108,7 +108,7 @@ class App(QWidget):
     def init2(self):
         hbox = QHBoxLayout()
         if self.tomograph.sinogram is not None:
-            self.sinogram_image = self.add_image(self.tomograph.sinogram)
+            self.sinogram_image = self.add_image(norm(self.tomograph.sinogram))
             hbox.addWidget(self.sinogram_image)
         else:
             pass
@@ -346,7 +346,7 @@ class Tomograph:
         # count center of squared_image and prepare matrix filled with zeros to apply radon transform
         center = squared_image.shape[0] // 2
         # r = (squared_image.shape[0] * math.sqrt(2)) // 2
-        r = (squared_image.shape[0]) // 2
+        r = squared_image.shape[0] * np.sqrt(2) // 2
         radon_image = []
 
         # iterate through angle list to obtain the result sinogram
@@ -379,15 +379,16 @@ class Tomograph:
             self.progress = 100 * i / len(angle_) + 1
             self.signal.signal.emit()
 
-        self.sinogram = norm(np.rot90(radon_image))
-        size = max(image.shape)
-        if size >= self.sinogram.shape[0]:
-            sinogram = norm(np.pad(self.sinogram, (
-            (((size - self.sinogram.shape[0]) // 2 + (size - self.sinogram.shape[0]) % 2),), (0,)), mode='constant'))
-        else:
-            sinogram = norm(self.sinogram[
-                            ((self.sinogram.shape[0] - size) // 2 + (self.sinogram.shape[0] - size) % 2):-(
-                                        self.sinogram.shape[0] - size) // 2, :])
+        # sinogram = norm(np.transpose(radon_image))
+        sinogram = np.transpose(radon_image)
+        # size = max(image.shape)
+        # if size >= self.sinogram.shape[0]:
+        #     sinogram = norm(np.pad(self.sinogram, (
+        #     (((size - self.sinogram.shape[0]) // 2 + (size - self.sinogram.shape[0]) % 2),), (0,)), mode='constant'))
+        # else:
+        #     sinogram = norm(self.sinogram[
+        #                     ((self.sinogram.shape[0] - size) // 2 + (self.sinogram.shape[0] - size) % 2):-(
+        #                                 self.sinogram.shape[0] - size) // 2, :])
         self.sinogram = sinogram
 
         return sinogram
@@ -398,7 +399,8 @@ class Tomograph:
         # size = sinogram.shape[0]
         size = max(image.shape)
         base_iradon = np.zeros((size, size))
-
+        center = size // 2
+        r = size * np.sqrt(2) // 2
         # create coordinate system centered at (x,y = 0,0)
         x = np.arange(size) - size / 2
         y = x.copy()
@@ -410,18 +412,46 @@ class Tomograph:
         # 3. take only available cords from base grid
         # 4. take one projection from sinogram
         # 5. proceed the part of backprojection
-        for i, angle in enumerate(np.deg2rad(angle_)):
-            Xrot = X * math.sin(angle) - Y * math.cos(angle)
-            XrotCor = (np.round(Xrot + size / 2)).astype('int')
-            step = np.zeros((size, size))
-            k, l = np.where((XrotCor >= 0) & (XrotCor <= (size - 1)))
-            sinogram_part = sinogram[:, i]
-            if with_convolve:
-                sinogram_part = self.convolve(sinogram_part, 10)
-            step[k, l] = sinogram_part[XrotCor[k, l]]
-            base_iradon += step
+        # for i, angle in enumerate(np.deg2rad(angle_)):
+        #     Xrot = X * math.sin(angle) - Y * math.cos(angle)
+        #     XrotCor = (np.round(Xrot + size / 2)).astype('int')
+        #     step = np.zeros((size, size))
+        #     k, l = np.where((XrotCor >= 0) & (XrotCor <= (size - 1)))
+        #     sinogram_part = sinogram[:, i]
+        #     if with_convolve:
+        #         sinogram_part = self.convolve(sinogram_part, 10)
+        #     step[k, l] = sinogram_part[XrotCor[k, l]]
+        #     base_iradon += step
 
-        iradon = np.flipud(base_iradon)
+        for i, angle in enumerate(np.deg2rad(angle_)):
+            lines_sum = []
+            for j in range(self.emiter_detector_count):
+
+                x1 = int(r * math.cos(
+                    angle + math.pi - np.deg2rad(self.angular_extent) / 2 + (j * np.deg2rad(self.angular_extent)) / (
+                            self.emiter_detector_count - 1)) + center)
+                y1 = int(r * math.sin(
+                    angle + math.pi - np.deg2rad(self.angular_extent) / 2 + (j * np.deg2rad(self.angular_extent)) / (
+                            self.emiter_detector_count - 1)) + center)
+                x2 = int(r * math.cos(
+                    angle + np.deg2rad(self.angular_extent) / 2 - (j * np.deg2rad(self.angular_extent)) / (
+                            self.emiter_detector_count - 1)) + center)
+                y2 = int(r * math.sin(
+                    angle + np.deg2rad(self.angular_extent) / 2 - (j * np.deg2rad(self.angular_extent)) / (
+                            self.emiter_detector_count - 1)) + center)
+
+                points = list(bresenham(x1, y1, x2, y2))
+                actual_sum = 0
+                sinogram_part = sinogram[:, i]
+                if with_convolve:
+                    sinogram_part = self.convolve(sinogram_part, 10)
+                for p in points:
+                    if -1 < p[0] < size and -1 < p[1] < size:
+                        base_iradon[p[0], p[1]] += sinogram_part[j]
+                lines_sum.append(actual_sum)
+
+        # iradon = np.flipud(base_iradon)
+        iradon = norm(base_iradon)
         #self.count_RMSE(image, iradon)
         self.iradon = norm(iradon)
         if not self.is_busy:
