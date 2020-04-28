@@ -161,7 +161,7 @@ class App(QWidget):
         if not self.is_busy:
             self.is_busy = True
             self.tomograph.is_busy = True
-            part = self.tomograph.sinogram[:, :int(self.tomograph.sinogram.shape[1] * self.slider.value() / 100)]
+            part = norm(self.tomograph.sinogram[:, :int(self.tomograph.sinogram.shape[1] * self.slider.value() / 100)])
             self.sinogram_image.setPixmap(QPixmap(get_qimage(part)).scaled(256, 256, Qt.KeepAspectRatio))
             iradon = norm(
                 self.tomograph.iradon_transform(self.tomograph.image, part, self.with_steps, self.with_convolve))
