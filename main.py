@@ -472,6 +472,10 @@ class Tomograph:
     @staticmethod
     def write_dicom(image, file_name, patient_name=None, patient_birth=None, patient_gender=None,
                     patient_age=None, comment=None):
+        from pydicom.data import get_testdata_file
+        filename = get_testdata_file("rtplan.dcm")
+        ps = pydicom.dcmread(filename)
+
         meta = Dataset()
         meta.MediaStorageSOPClassUID = '1.1'
         meta.MediaStorageSOPInstanceUID = '1.2'
@@ -479,7 +483,7 @@ class Tomograph:
         meta.TransferSyntaxUID = ImplicitVRLittleEndian
 
         ds = FileDataset(file_name + '.dcm', {}, file_meta=meta, preamble=b"\0" * 128)
-
+        ds = ps
         if patient_name:
             ds.PatientName = patient_name
         if patient_birth:
@@ -500,7 +504,7 @@ class Tomograph:
         ds.ImagesInAcquisition = "1"
         ds.InstanceNumber = 1
         ds.SamplesPerPixel = 1
-        ds.PhotometricInterpretation = "MONOCHROME1"
+        ds.PhotometricInterpretation = "MONOCHROME2"
         ds.PixelRepresentation = 0
         ds.HighBit = 15
         ds.BitsStored = 16
@@ -510,6 +514,7 @@ class Tomograph:
         ds.Columns = image.shape[1]
         ds.Rows = image.shape[0]
         ds.PixelData = image.tostring()
+
         ds.save_as("out/" + file_name + '.dcm')
 
     @staticmethod
